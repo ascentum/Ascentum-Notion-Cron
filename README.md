@@ -35,7 +35,7 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Railway 
 
 ### 4. 업무 캘린더 링크드 뷰 필터 보정
 
-- GitHub Actions가 KST 평일 00:10에 `어센텀 업무 ...` 캘린더 페이지를 스캔한다.
+- GitHub Actions가 KST 평일 03:00에 `어센텀 업무 ...` 캘린더 페이지를 스캔한다.
 - 각 페이지의 첫 번째 콜아웃 안에 있는 `어센텀 업무 DB` 링크드 뷰에서 `완료일 = today` 필터를 해당 페이지의 `일정` 날짜로 바꾼다.
 - 기본 스캔 범위는 KST 오늘 기준 2일 전부터 오늘까지다.
 - 수동 실행은 GitHub Actions의 `Fix Notion linked view filters` workflow에서 `target_date`를 지정해 실행한다.

@@ -2,8 +2,8 @@ name: Fix Notion linked view filters
 
 on:
   schedule:
-    # 00:10 KST, Monday-Friday.
-    - cron: "10 15 * * 0-4"
+    # 03:00 KST, Monday-Friday.
+    - cron: "0 18 * * 0-4"
   workflow_dispatch:
     inputs:
       target_date:
