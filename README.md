@@ -33,6 +33,13 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Railway 
 - Railway scheduler가 매주 목요일 KST 기준으로 주간 리포트를 생성한다.
 - 레거시 업무 DB와 최신 업무 DB를 같이 조회해 Notion 미팅 기록 페이지를 채운다.
 
+### 4. 업무 캘린더 링크드 뷰 필터 보정
+
+- GitHub Actions가 KST 평일 00:10에 `어센텀 업무 ...` 캘린더 페이지를 스캔한다.
+- 각 페이지 안의 `어센텀 업무 DB` 링크드 뷰에서 `완료일 = today` 필터를 해당 페이지의 `일정` 날짜로 바꾼다.
+- 기본 스캔 범위는 KST 오늘 기준 2일 전부터 오늘까지다.
+- 수동 실행은 GitHub Actions의 `Fix Notion linked view filters` workflow에서 `target_date`를 지정해 실행한다.
+
 ## 환경변수
 
 `.env.local` 또는 Railway Variables에 아래 값을 입력한다.
@@ -49,6 +56,11 @@ APP_BASE_URL=
 NOTION_API_KEY=
 OPENAI_API_KEY=
 NOTION_WORK_DB_ID=
+NOTION_WORK_CALENDAR_DB_ID=
+NOTION_WORK_CALENDAR_TITLE_PREFIX=어센텀 업무
+NOTION_WORK_CALENDAR_DATE_PROPERTY_NAME=일정
+NOTION_LINKED_VIEW_DATE_PROPERTY_NAME=완료일
+NOTION_WORK_CALENDAR_LOOKBACK_DAYS=2
 NOTION_LEGACY_WORK_DB_ID=
 NOTION_WORK_DB_CUTOFF_DATE=2026-04-01
 NOTION_MEETING_DB_ID=
@@ -93,6 +105,15 @@ Discord slash command 등록:
 ```bash
 npm run register:commands
 ```
+
+업무 캘린더 링크드 뷰 필터 보정:
+
+```bash
+DRY_RUN=true npm run notion:fix-work-calendar-views
+npm run notion:fix-work-calendar-views
+```
+
+GitHub Actions에는 `NOTION_API_KEY`, `NOTION_WORK_DB_ID`, `NOTION_WORK_CALENDAR_DB_ID`를 repository secrets로 등록한다.
 
 ## 내부 엔드포인트
 

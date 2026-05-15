@@ -1,0 +1,44 @@
+name: Fix Notion linked view filters
+
+on:
+  schedule:
+    # 00:10 KST, Monday-Friday.
+    - cron: "10 15 * * 0-4"
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "KST target date, YYYY-MM-DD. Empty means today."
+        required: false
+        type: string
+      lookback_days:
+        description: "How many days before target_date to scan."
+        required: false
+        default: "2"
+        type: string
+
+jobs:
+  fix-linked-view-filters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Replace dynamic today filters with page dates
+        run: npm run notion:fix-work-calendar-views
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_WORK_DB_ID: ${{ secrets.NOTION_WORK_DB_ID }}
+          NOTION_WORK_CALENDAR_DB_ID: ${{ secrets.NOTION_WORK_CALENDAR_DB_ID }}
+          NOTION_WORK_CALENDAR_TITLE_PREFIX: ${{ vars.NOTION_WORK_CALENDAR_TITLE_PREFIX || '어센텀 업무' }}
+          NOTION_WORK_CALENDAR_DATE_PROPERTY_NAME: ${{ vars.NOTION_WORK_CALENDAR_DATE_PROPERTY_NAME || '일정' }}
+          NOTION_LINKED_VIEW_DATE_PROPERTY_NAME: ${{ vars.NOTION_LINKED_VIEW_DATE_PROPERTY_NAME || '완료일' }}
+          NOTION_WORK_CALENDAR_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || vars.NOTION_WORK_CALENDAR_LOOKBACK_DAYS || '2' }}
+          TARGET_DATE: ${{ github.event.inputs.target_date || '' }}
