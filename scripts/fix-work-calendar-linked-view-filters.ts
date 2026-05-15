@@ -369,6 +369,24 @@ async function findChildDatabases(
   return childDatabases;
 }
 
+export function getFirstBlockIdByType(
+  blocks: Array<Pick<BlockResponse, "id" | "type">>,
+  blockType: string
+): string | null {
+  return blocks.find((block) => block.type === blockType)?.id ?? null;
+}
+
+async function findChildDatabasesInFirstCallout(
+  pageId: string,
+  maxDepth: number
+): Promise<BlockResponse[]> {
+  const topLevelBlocks = await listBlockChildren(pageId);
+  const calloutBlockId = getFirstBlockIdByType(topLevelBlocks, "callout");
+  if (!calloutBlockId) return [];
+
+  return findChildDatabases(calloutBlockId, maxDepth);
+}
+
 async function listViewsForDatabase(databaseId: string): Promise<ViewReference[]> {
   const views: ViewReference[] = [];
   let cursor: string | undefined;
@@ -466,7 +484,10 @@ async function updateLinkedViewsForPage(input: {
   forceDateFilters: boolean;
   dryRun: boolean;
 }): Promise<{ viewsChecked: number; viewsUpdated: number; updates: ViewUpdateSummary[] }> {
-  const childDatabases = await findChildDatabases(input.pageId, input.maxBlockDepth);
+  const childDatabases = await findChildDatabasesInFirstCallout(
+    input.pageId,
+    input.maxBlockDepth
+  );
   const updates: ViewUpdateSummary[] = [];
   let viewsChecked = 0;
   let viewsUpdated = 0;

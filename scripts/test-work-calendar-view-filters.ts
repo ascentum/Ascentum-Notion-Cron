@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
-import { replaceLinkedViewDateFilters } from "./fix-work-calendar-linked-view-filters";
+import {
+  getFirstBlockIdByType,
+  replaceLinkedViewDateFilters,
+} from "./fix-work-calendar-linked-view-filters";
 
 const datePropertyKeys = new Set(["HDdB", "완료일"]);
+
+assert.equal(
+  getFirstBlockIdByType(
+    [
+      { id: "paragraph-1", type: "paragraph" },
+      { id: "callout-1", type: "callout" },
+      { id: "callout-2", type: "callout" },
+    ],
+    "callout"
+  ),
+  "callout-1"
+);
 
 const nestedFilter = {
   or: [
