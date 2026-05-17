@@ -1,12 +1,13 @@
 # Ascentum Notion Cron
 
-Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Railway 단일 서비스`다.
+Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Oracle Cloud VM + Docker Compose`다.
 
 `node:sqlite`를 사용하므로 런타임은 `Node 24+`가 필요하다.
 
 ## 운영 구성
 
-- Railway: Express 서버, Discord interaction endpoint, 내부 scheduler, SQLite 상태 저장을 담당한다.
+- Oracle Cloud: Express 서버, Discord interaction endpoint, 내부 scheduler, SQLite 상태 저장을 담당한다.
+- Caddy: Oracle VM에서 HTTPS 인증서 발급/갱신과 reverse proxy를 담당한다.
 - GitHub Actions: Notion 반복 템플릿으로 생성된 업무 캘린더 페이지의 링크드 DB 뷰 필터를 보정한다.
 - Notion: 업무 DB, 업무 캘린더 DB, 미팅 기록 DB를 데이터 소스로 사용한다.
 - Discord: 스니펫 확인/수정/건너뛰기 상호작용을 받는다.
@@ -14,17 +15,17 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Railway 
 
 ## 운영 상태
 
-- `2026-05-16` 기준 `/healthz`가 `200 OK`로 응답하고, Railway scheduler는 enabled 상태다.
-- GitHub `main`은 Railway 프로덕션에 자동 배포되는 상태다.
-- 프로덕션 URL은 `https://notion-cron-production.up.railway.app` 이다.
-- `2026-04-24` 기준 남아 있던 수동 cutover 작업은 `Discord Interactions Endpoint URL`을 Railway의 `/discord-interact`로 변경하는 것이었다.
-- 위 전환 후 Discord 버튼, `/snippet`, 30분 자동 게시를 실운영에서 확인하면 Vercel 프로젝트는 제거해도 된다.
+- `2026-05-17` 기준 Oracle `/healthz`가 `200 OK`로 응답하고, scheduler는 enabled 상태다.
+- 프로덕션 URL은 `https://notion-cron.168.110.123.188.sslip.io` 이다.
+- Discord `Interactions Endpoint URL`은 `https://notion-cron.168.110.123.188.sslip.io/discord-interact`로 전환됐다.
+- Railway production deployment는 내려갔고, Railway Variables의 `ENABLE_SCHEDULER=false`가 설정돼 있다.
+- Oracle A1 Flex 신규 VM은 `Out of host capacity`로 생성하지 못해, 기존 Always Free 후보 VM인 `archy-ops-cron`에서 운영한다.
 
 ## 자동화 흐름
 
 ### 1. 데일리/주간 스니펫
 
-- Railway always-on 서비스가 KST 날짜 변경을 기준으로 매일 한 번 실행한다.
+- Oracle scheduler가 KST 날짜 변경을 기준으로 매일 한 번 실행한다.
 - 데일리 스니펫은 KST 기준 실행일의 전날 업무를 대상으로 한다.
 - 완료된 업무를 Notion에서 읽고 사람별로 정리한 뒤 OpenAI로 스니펫을 생성한다.
 - Discord 채널에 버튼 메시지를 보내고, 각 메시지는 SQLite에 `pending` 상태로 저장된다.
@@ -39,7 +40,7 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Railway 
 
 ### 3. 주간 미팅 리포트
 
-- Railway scheduler가 매주 목요일 KST 기준으로 주간 리포트를 생성한다.
+- Oracle scheduler가 매주 목요일 KST 기준으로 주간 리포트를 생성한다.
 - 레거시 업무 DB와 최신 업무 DB를 같이 조회해 Notion 미팅 기록 페이지를 채운다.
 
 ### 4. 업무 캘린더 링크드 뷰 필터 보정
@@ -53,7 +54,7 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Railway 
 
 ## 환경변수
 
-`.env.local` 또는 Railway Variables에 아래 값을 입력한다.
+`.env.local` 또는 `ops/oracle/notion-cron.env`에 아래 값을 입력한다.
 
 ```env
 PORT=3000
@@ -91,10 +92,11 @@ GCS_API_TOKEN_SEYEON=
 
 운영 기본값:
 
-- Railway production에서는 `ENABLE_SCHEDULER=true`
+- Oracle production에서는 `ENABLE_SCHEDULER=true`
 - Volume mount path는 `/app/data`
-- Railway production에서는 `SQLITE_DB_PATH=/app/data/automation.sqlite`
-- `APP_BASE_URL=https://notion-cron-production.up.railway.app`
+- Oracle production에서는 `SQLITE_DB_PATH=/app/data/automation.sqlite`
+- Oracle VM host data path는 `/opt/notion-cron/data`
+- `APP_BASE_URL=https://notion-cron.168.110.123.188.sslip.io`
 
 ## 로컬 실행
 
@@ -171,28 +173,32 @@ npm run test:work-calendar-view-filters
 
 ## 장애 대응
 
-- Railway 상태 확인: `curl https://notion-cron-production.up.railway.app/healthz`
-- Discord interaction 장애: Discord Developer Portal의 Interactions Endpoint URL이 `https://notion-cron-production.up.railway.app/discord-interact`인지 확인한다.
-- 데일리/주간 스니펫 누락: `/healthz`의 `recentJobs`와 Railway logs를 확인하고, 필요하면 `/internal/snippets/send-daily` 또는 `/internal/reports/run-weekly`를 내부 토큰으로 수동 호출한다.
+- Oracle 상태 확인: `curl https://notion-cron.168.110.123.188.sslip.io/healthz`
+- Oracle 컨테이너 확인: `ssh ubuntu@168.110.123.188 'cd /opt/notion-cron/app && docker compose --env-file ops/oracle/notion-cron.env -f ops/oracle/docker-compose.yml ps'`
+- Discord interaction 장애: Discord application의 Interactions Endpoint URL이 `https://notion-cron.168.110.123.188.sslip.io/discord-interact`인지 확인한다.
+- 데일리/주간 스니펫 누락: `/healthz`의 `recentJobs`와 Oracle Docker logs를 확인하고, 필요하면 `/internal/snippets/send-daily` 또는 `/internal/reports/run-weekly`를 내부 토큰으로 수동 호출한다.
 - 업무 캘린더 링크드 뷰 필터 누락: GitHub Actions `Fix Notion linked view filters`를 `target_date=YYYY-MM-DD`로 수동 실행한다.
 - Notion API 실패: 통합 토큰이 대상 DB와 생성된 페이지에 접근 권한이 있는지, `NOTION_WORK_DB_ID`/`NOTION_WORK_CALENDAR_DB_ID`가 맞는지 확인한다.
 
 ## 배포 메모
 
+- Oracle VM: `archy-ops-cron`
+- Oracle app path: `/opt/notion-cron/app`
+- Oracle data path: `/opt/notion-cron/data/automation.sqlite`
+- Oracle deploy command: `docker compose --env-file ops/oracle/notion-cron.env -f ops/oracle/docker-compose.yml up -d --build`
+- GitHub repository: `ascentum/Ascentum-Notion-Cron`
 - Railway project name: `Ascentum Notion Cron`
 - Railway service name: `notion-cron`
-- GitHub repository: `ascentum/Ascentum-Notion-Cron`
-- Railway는 `main` 브랜치 기준 auto deploy로 동작한다.
-- Railway deploy/runtime 설정은 루트의 `railway.toml`로 함께 관리한다.
-- start command는 `node dist/src/server.js`로 직접 지정해, 롤링 배포 시 `npm run start`의 `SIGTERM` 오탐 알림을 줄인다.
+- Railway 설정은 rollback 참고용으로 `railway.toml`에 남겨둔다.
+- 비용 0원 운영 제약 때문에 reserved public IP, load balancer, 유료 DNS는 사용하지 않는다. VM 재생성 시 public IP와 `sslip.io` hostname이 바뀔 수 있다.
 
 ## Discord Cutover 체크리스트
 
-1. Discord Developer Portal에서 Interactions Endpoint URL을 `https://notion-cron-production.up.railway.app/discord-interact`로 변경한다.
+1. Discord application의 Interactions Endpoint URL이 `https://notion-cron.168.110.123.188.sslip.io/discord-interact`인지 확인한다.
 2. `/snippet` slash command가 정상 응답하는지 확인한다.
 3. 버튼 클릭, 수정, 헬스체크 입력, 건너뛰기가 모두 정상 동작하는지 확인한다.
 4. 30분 미응답 자동 게시가 정상 동작하는지 확인한다.
-5. 확인이 끝나면 Vercel Git 연결을 해제하고, 최종적으로 Vercel 프로젝트를 삭제한다.
+5. 안정화 확인 후 Railway Hobby plan 구독을 해지한다.
 
 ## 프로젝트 구조
 

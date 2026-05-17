@@ -1,0 +1,15 @@
+{
+  admin off
+}
+
+{$APP_HOST} {
+  encode zstd gzip
+
+  reverse_proxy notion-cron:3000
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+  }
+}

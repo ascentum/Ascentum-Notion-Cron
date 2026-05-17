@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.next
+.vercel
+data
+dist
+node_modules
+ops/oracle/backups
+ops/oracle/notion-cron.env
+.env
+.env.*
+!.env.example
+npm-debug.log*
+tsconfig.tsbuildinfo
