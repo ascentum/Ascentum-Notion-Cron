@@ -35,39 +35,47 @@ async function deleteEmptyParagraph(toggleBlockId: string) {
   }
 }
 
+function buildOverviewRichText(line: string) {
+  const dashIndex = line.indexOf(" — ");
+  const colonIndex = line.indexOf(":");
+  const separatorIndex =
+    dashIndex === -1
+      ? colonIndex
+      : colonIndex === -1
+        ? dashIndex
+        : Math.min(dashIndex, colonIndex);
+
+  if (separatorIndex === -1) {
+    return [{ type: "text", text: { content: line } }];
+  }
+
+  const title = line.slice(0, separatorIndex).trim();
+  const rest = line.slice(separatorIndex);
+  if (!title || !rest.trim()) {
+    return [{ type: "text", text: { content: line } }];
+  }
+
+  return [
+    {
+      type: "text",
+      text: { content: title },
+      annotations: { bold: true },
+    },
+    { type: "text", text: { content: rest } },
+  ];
+}
+
 function buildContentBlocks(overview: string, startShort: string, endShort: string): any[] {
   const overviewBlocks = overview
     .split("\n")
     .filter((line) => line.trim().length > 0)
-    .map((line) => {
-      const dashIndex = line.indexOf(" — ");
-      if (dashIndex !== -1) {
-        const boldPart = line.slice(0, dashIndex + 3);
-        const restPart = line.slice(dashIndex + 3);
-        return {
-          object: "block",
-          type: "paragraph",
-          paragraph: {
-            rich_text: [
-              {
-                type: "text",
-                text: { content: boldPart },
-                annotations: { bold: true },
-              },
-              { type: "text", text: { content: restPart } },
-            ],
-          },
-        };
-      }
-
-      return {
-        object: "block",
-        type: "paragraph",
-        paragraph: {
-          rich_text: [{ type: "text", text: { content: line } }],
-        },
-      };
-    });
+    .map((line) => ({
+      object: "block",
+      type: "paragraph",
+      paragraph: {
+        rich_text: buildOverviewRichText(line),
+      },
+    }));
 
   return [
     ...overviewBlocks,
