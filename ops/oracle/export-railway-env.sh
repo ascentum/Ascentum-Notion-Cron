@@ -26,9 +26,10 @@ railway variable list --kv > "$tmp_file"
   echo "NODE_ENV=production"
   echo "PORT=3000"
   echo "ENABLE_SCHEDULER=true"
+  echo "ENABLE_MEETING_PAGE_AUTO_CREATE=false"
   echo "SQLITE_DB_PATH=/app/data/automation.sqlite"
   echo "DATA_DIR=/opt/notion-cron/data"
-  grep -E -v '^(APP_BASE_URL|NODE_ENV|PORT|ENABLE_SCHEDULER|SQLITE_DB_PATH|DATA_DIR|APP_HOST|RAILWAY_.*)=' "$tmp_file" || true
+  grep -E -v '^(APP_BASE_URL|NODE_ENV|PORT|ENABLE_SCHEDULER|ENABLE_MEETING_PAGE_AUTO_CREATE|SQLITE_DB_PATH|DATA_DIR|APP_HOST|RAILWAY_.*)=' "$tmp_file" || true
 } > "$output_file"
 
 chmod 600 "$output_file"

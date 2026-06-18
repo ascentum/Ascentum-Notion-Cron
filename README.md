@@ -42,6 +42,7 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Oracle C
 
 - Oracle scheduler가 매주 목요일 KST 기준으로 주간 리포트를 생성한다.
 - 레거시 업무 DB와 최신 업무 DB를 같이 조회해 Notion 미팅 기록 페이지를 채운다.
+- `ENABLE_MEETING_PAGE_AUTO_CREATE=false`이면 해당 날짜의 `이민섭교수님` 미팅 페이지가 없을 때 새 페이지를 만들지 않고 스킵한다. 이미 만들어진 페이지가 있으면 기존처럼 내용을 채운다.
 
 ### 4. 업무 캘린더 링크드 뷰 필터 보정
 
@@ -61,6 +62,7 @@ PORT=3000
 SQLITE_DB_PATH=./data/automation.sqlite
 INTERNAL_ADMIN_TOKEN=
 ENABLE_SCHEDULER=false
+ENABLE_MEETING_PAGE_AUTO_CREATE=false
 AUTO_POST_DELAY_MINUTES=30
 SCHEDULER_TICK_SECONDS=60
 APP_BASE_URL=
@@ -93,6 +95,7 @@ GCS_API_TOKEN_SEYEON=
 운영 기본값:
 
 - Oracle production에서는 `ENABLE_SCHEDULER=true`
+- Oracle production에서는 `ENABLE_MEETING_PAGE_AUTO_CREATE=false`
 - Volume mount path는 `/app/data`
 - Oracle production에서는 `SQLITE_DB_PATH=/app/data/automation.sqlite`
 - Oracle VM host data path는 `/opt/notion-cron/data`

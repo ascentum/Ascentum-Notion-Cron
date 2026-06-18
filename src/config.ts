@@ -39,6 +39,10 @@ export const config = {
     "ENABLE_SCHEDULER",
     process.env.NODE_ENV === "production"
   ),
+  enableMeetingPageAutoCreate: optionalBoolean(
+    "ENABLE_MEETING_PAGE_AUTO_CREATE",
+    false
+  ),
   discordChannelId: required("DISCORD_CHANNEL_ID"),
   autoPostDelayMinutes: optionalInteger("AUTO_POST_DELAY_MINUTES", 30),
   schedulerTickSeconds: optionalInteger("SCHEDULER_TICK_SECONDS", 60),

@@ -230,6 +230,27 @@ export async function runWeeklyReport(now: Date = new Date()) {
     return { success: true, pageId: null, tasksProcessed: 0, skipped: true };
   }
 
+  const existingPage = await findMeetingPageByDate(todayIso);
+  let pageId: string;
+
+  if (existingPage) {
+    pageId = existingPage.id;
+  } else {
+    if (!config.enableMeetingPageAutoCreate) {
+      return {
+        success: true,
+        pageId: null,
+        tasksProcessed: totalTasks,
+        skipped: true,
+        reason: "meeting-page-auto-create-disabled",
+      };
+    }
+
+    const newPage = await createMeetingPage("이민섭교수님 미팅", todayIso);
+    pageId = newPage.id;
+    await waitForTemplateBlocks(pageId);
+  }
+
   const { overview, summarizedDaily } = await generateWeeklySummary(dailySummaries, {
     startDate: startIso,
     endDate: endIso,
@@ -237,17 +258,6 @@ export async function runWeeklyReport(now: Date = new Date()) {
 
   const startShort = toShortDate(startIso);
   const endShort = toShortDate(endIso);
-  const existingPage = await findMeetingPageByDate(todayIso);
-  let pageId: string;
-
-  if (existingPage) {
-    pageId = existingPage.id;
-  } else {
-    const newPage = await createMeetingPage("이민섭교수님 미팅", todayIso);
-    pageId = newPage.id;
-    await waitForTemplateBlocks(pageId);
-  }
-
   const topBlocks = await getPageTopBlocks(pageId);
   const insertAfterBlockId = findHeadingInBlocks(topBlocks, "2️⃣");
   const appendedBlocks = insertAfterBlockId
