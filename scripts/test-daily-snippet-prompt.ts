@@ -22,7 +22,11 @@ for (const section of [
 }
 
 // 회고 지침: 구체성 앵커와 금지 표현이 실제로 프롬프트에 들어가야 한다
-assert.ok(prompt.includes("오늘 실제로 만진 것을 반드시 하나 이상 구체적으로 언급할 것"));
+// 길이 폭주 방지: 업무마다 한 문장씩 쓰면 6문장짜리 회고가 된다
+assert.ok(prompt.includes("3문장을 넘기지 말 것"));
+assert.ok(prompt.includes("문장 수를 채우려 하지 말 것"));
+assert.ok(prompt.includes("업무마다 한 문장씩 쓰지 말 것"));
+assert.ok(prompt.includes("가장 마음에 남은 것 하나만 골라서 쓸 것"));
 assert.ok(prompt.includes("~가 얼마나 중요한지 다시 깨달았습니다"));
 assert.ok(prompt.includes("평서체(~였다, ~해야겠다)로 쓸 것. 존댓말 금지"));
 
