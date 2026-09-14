@@ -242,7 +242,9 @@ npm run test:work-hours
 | Secret | `API_SSH_KEY` | 배포용 SSH private key |
 | Variable | `NOTION_CRON_APP_DIR` | 호스트 아티팩트 경로. 미설정 시 `/opt/notion-cron/app` |
 
-self-hosted runner는 `[self-hosted, archy-vercel]` 라벨로 이 레포에 등록되어 있어야 한다. 러너가 없으면 job이 큐에서 대기만 한다.
+self-hosted runner는 `notion-cron` 라벨로 이 레포에 등록되어 있어야 한다. 러너가 없으면 job이 큐에서 대기만 한다.
+
+러너는 `archy-github-runner` VM에 올린다. 그 VM은 같은 VCN 안에 있어 배포 대상 호스트의 22번이 열려 있는 두 IP 중 하나다. 등록 관례는 `~/actions-runner-<이름>` 디렉터리에 받아 `svc.sh`로 systemd 서비스를 만드는 것이다. 같은 VM에 다른 레포용 러너가 이미 여러 개 떠 있다.
 
 ### 수동 배포
 
