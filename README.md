@@ -221,6 +221,36 @@ npm run test:work-hours
 - 업무 캘린더 링크드 뷰 필터 누락: GitHub Actions `Fix Notion linked view filters`를 `target_date=YYYY-MM-DD`로 수동 실행한다.
 - Notion API 실패: 통합 토큰이 대상 DB와 생성된 페이지에 접근 권한이 있는지, `NOTION_WORK_DB_ID`/`NOTION_WORK_CALENDAR_DB_ID`가 맞는지 확인한다.
 
+## 배포
+
+### 자동 배포 (GitHub Actions)
+
+- `Oracle Deploy` workflow를 `workflow_dispatch`로 실행한다. `confirm`에 `DISCOVER`를 넣으면 호스트 상태만 조회하고, `DEPLOY`를 넣어야 실제로 배포한다.
+- 배포는 호스트의 git 체크아웃을 `origin/<target_ref>`로 갱신하고 `docker compose up -d --build`를 실행한 뒤 `/healthz`가 200이 될 때까지 기다린다. 200이 안 나오면 직전 커밋으로 되돌리고 다시 빌드한 뒤 실패로 끝낸다.
+- **이 workflow는 self-hosted runner에서만 돈다.** 외부에서는 호스트에 SSH로 들어갈 수 없기 때문이다. 22번이 NSG에서 사설 IP 두 개로만 열려 있고, NSG에 공인 IP를 추가해도 ufw가 따로 막는다. Oracle Cloud Agent의 Run Command 플러그인은 이 에이전트 버전에 없고, Bastion은 세션 인증까지는 통과하지만 대상 연결이 끊긴다. 같은 서브넷의 러너를 경유하는 것이 유일하게 동작하는 경로다.
+
+필요한 레포 설정:
+
+| 종류 | 이름 | 내용 |
+| --- | --- | --- |
+| Secret | `API_HOST` | 러너에서 접근 가능한 호스트 주소 (사설 IP) |
+| Secret | `API_USER` | 배포 계정 |
+| Secret | `API_SSH_PORT` | SSH 포트 |
+| Secret | `API_SSH_KEY` | 배포용 SSH private key |
+| Variable | `NOTION_CRON_REPO_DIR` | 호스트 체크아웃 경로. 미설정 시 `/opt/notion-cron/app` |
+
+self-hosted runner는 `[self-hosted, archy-vercel]` 라벨로 이 레포에 등록되어 있어야 한다. 러너가 없으면 job이 큐에서 대기만 한다.
+
+### 수동 배포
+
+러너를 못 쓸 때는 허용된 경로에서 직접 실행한다.
+
+```bash
+cd /opt/notion-cron/app && git pull
+docker compose --env-file ops/oracle/notion-cron.env -f ops/oracle/docker-compose.yml up -d --build
+curl -fsS https://notion-cron.168.110.123.188.sslip.io/healthz
+```
+
 ## 배포 메모
 
 - Oracle VM: `archy-ops-cron`
