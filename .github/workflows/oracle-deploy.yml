@@ -34,7 +34,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy notion-cron to Oracle host
-    runs-on: [self-hosted, archy-vercel]
+    runs-on: [self-hosted, notion-cron]
     timeout-minutes: 25
 
     env:
