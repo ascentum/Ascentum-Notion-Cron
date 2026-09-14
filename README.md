@@ -226,7 +226,10 @@ npm run test:work-hours
 ### 자동 배포 (GitHub Actions)
 
 - `Oracle Deploy` workflow를 `workflow_dispatch`로 실행한다. `confirm`에 `DISCOVER`를 넣으면 호스트 상태만 조회하고, `DEPLOY`를 넣어야 실제로 배포한다.
-- 배포는 호스트의 git 체크아웃을 `origin/<target_ref>`로 갱신하고 `docker compose up -d --build`를 실행한 뒤 `/healthz`가 200이 될 때까지 기다린다. 200이 안 나오면 직전 커밋으로 되돌리고 다시 빌드한 뒤 실패로 끝낸다.
+- `/opt/notion-cron/app`은 git 체크아웃이 아니라 **아티팩트 디렉터리**다. 그래서 배포는 `git pull`이 아니라 GitHub tarball을 받아 디렉터리를 통째로 교체한다. 레포가 public이라 호스트가 직접 받을 수 있고 별도 자격증명이 필요 없다.
+- 교체 전 전체를 `~/notion-cron-backups/<타임스탬프>`에 백업하고, 레포에 없는 운영 자산인 `ops/oracle/notion-cron.env`는 새 아티팩트로 옮겨 심는다.
+- 이 스택은 compose 파일 **두 개**(`ops/oracle/docker-compose.yml` + `/opt/archy-proxy/compose.override.yml`)로 떠 있다. 하나만 넘기면 caddy가 override 없이 재생성되어 프록시가 깨지므로, caddy 컨테이너 라벨의 파일 목록을 그대로 재사용하고 `notion-cron` 서비스만 빌드한다.
+- 빌드 후 `/healthz`가 200이 될 때까지 기다린다. 200이 안 나오면 백업을 되돌리고 재빌드한 뒤 실패로 끝낸다.
 - **이 workflow는 self-hosted runner에서만 돈다.** 외부에서는 호스트에 SSH로 들어갈 수 없기 때문이다. 22번이 NSG에서 사설 IP 두 개로만 열려 있고, NSG에 공인 IP를 추가해도 ufw가 따로 막는다. Oracle Cloud Agent의 Run Command 플러그인은 이 에이전트 버전에 없고, Bastion은 세션 인증까지는 통과하지만 대상 연결이 끊긴다. 같은 서브넷의 러너를 경유하는 것이 유일하게 동작하는 경로다.
 
 필요한 레포 설정:
@@ -237,7 +240,7 @@ npm run test:work-hours
 | Secret | `API_USER` | 배포 계정 |
 | Secret | `API_SSH_PORT` | SSH 포트 |
 | Secret | `API_SSH_KEY` | 배포용 SSH private key |
-| Variable | `NOTION_CRON_REPO_DIR` | 호스트 체크아웃 경로. 미설정 시 `/opt/notion-cron/app` |
+| Variable | `NOTION_CRON_APP_DIR` | 호스트 아티팩트 경로. 미설정 시 `/opt/notion-cron/app` |
 
 self-hosted runner는 `[self-hosted, archy-vercel]` 라벨로 이 레포에 등록되어 있어야 한다. 러너가 없으면 job이 큐에서 대기만 한다.
 
@@ -246,8 +249,16 @@ self-hosted runner는 `[self-hosted, archy-vercel]` 라벨로 이 레포에 등�
 러너를 못 쓸 때는 허용된 경로에서 직접 실행한다.
 
 ```bash
-cd /opt/notion-cron/app && git pull
-docker compose --env-file ops/oracle/notion-cron.env -f ops/oracle/docker-compose.yml up -d --build
+APP=/opt/notion-cron/app
+cd "$APP"
+# 아티팩트 디렉터리라 git pull 이 아니다. 받아서 교체한다.
+cp -a "$APP" ~/notion-cron-backups/$(date +%Y%m%d%H%M%S)
+curl -fsSL https://github.com/ascentum/Ascentum-Notion-Cron/archive/refs/heads/main.tar.gz -o /tmp/nc.tar.gz
+# notion-cron.env 는 레포에 없으니 반드시 보존할 것
+
+# compose 파일 목록은 caddy 라벨에서 그대로 가져온다 (archy-proxy override 포함)
+docker inspect oracle-caddy-1 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
+docker compose -p oracle --env-file ops/oracle/notion-cron.env   -f ops/oracle/docker-compose.yml -f /opt/archy-proxy/compose.override.yml   up -d --build notion-cron
 curl -fsS https://notion-cron.168.110.123.188.sslip.io/healthz
 ```
 
@@ -256,7 +267,8 @@ curl -fsS https://notion-cron.168.110.123.188.sslip.io/healthz
 - Oracle VM: `archy-ops-cron`
 - Oracle app path: `/opt/notion-cron/app`
 - Oracle data path: `/opt/notion-cron/data/automation.sqlite`
-- Oracle deploy command: `docker compose --env-file ops/oracle/notion-cron.env -f ops/oracle/docker-compose.yml up -d --build`
+- Oracle deploy: `Oracle Deploy` workflow (self-hosted runner 경유). 자세한 내용은 위 `## 배포` 참고
+- Oracle app path는 git 체크아웃이 아니라 아티팩트 디렉터리다 (`.git` 없음)
 - GitHub repository: `ascentum/Ascentum-Notion-Cron`
 - Railway project name: `Ascentum Notion Cron`
 - Railway service name: `notion-cron`

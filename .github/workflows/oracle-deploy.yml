@@ -4,12 +4,13 @@ name: Oracle Deploy
 #
 # 그 호스트에는 외부에서 들어갈 수 없다. SSH 22번이 NSG 에서 사설 IP 두 개로만
 # 열려 있고, NSG 에 공인 IP 를 추가해도 ufw 가 따로 막는다. Oracle Cloud Agent 의
-# Run Command 플러그인은 이 에이전트 버전에 아예 없고, Bastion 은 세션 인증까지는
+# Run Command 플러그인은 이 에이전트 버전에 없고, Bastion 은 세션 인증까지는
 # 통과하지만 대상 연결이 끊긴다. 같은 서브넷의 self-hosted 러너를 경유하는
-# 이 워크플로가 유일하게 동작하는 경로다. (Archy_V2 의 oracle-ops-agent-deploy 와 동일)
+# 이 워크플로가 유일하게 동작하는 경로다.
 #
-# ops-agent 와 달리 여기는 아티팩트 복사가 아니라 호스트의 git 체크아웃을 갱신한다.
-# 이미지 빌드도 호스트에서 한다. 1 GB VM 이라 빌드가 무거우므로 한 번에 하나만 돈다.
+# `/opt/notion-cron/app` 은 git 체크아웃이 아니라 아티팩트 디렉터리다. 그래서
+# git pull 이 아니라 tarball 을 받아 통째로 교체한다. 레포가 public 이라
+# 호스트가 직접 받을 수 있고 별도 자격증명이 필요 없다.
 
 on:
   workflow_dispatch:
@@ -19,7 +20,7 @@ on:
         required: true
         default: DISCOVER
       target_ref:
-        description: Ref to deploy
+        description: Branch to deploy
         required: true
         default: main
 
@@ -34,16 +35,13 @@ jobs:
   deploy:
     name: Deploy notion-cron to Oracle host
     runs-on: [self-hosted, archy-vercel]
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     env:
       API_HOST: ${{ secrets.API_HOST }}
       API_USER: ${{ secrets.API_USER }}
       API_SSH_PORT: ${{ secrets.API_SSH_PORT }}
-      # 호스트의 체크아웃 경로. vars 로 덮어쓸 수 있고, 없으면 DISCOVER 가 찾아낸 기본값.
-      REPO_DIR: ${{ vars.NOTION_CRON_REPO_DIR || '/opt/notion-cron/app' }}
-      COMPOSE_FILE: ops/oracle/docker-compose.yml
-      ENV_FILE: ops/oracle/notion-cron.env
+      APP_DIR: ${{ vars.NOTION_CRON_APP_DIR || '/opt/notion-cron/app' }}
       HEALTH_URL: https://notion-cron.168.110.123.188.sslip.io/healthz
 
     steps:
@@ -84,28 +82,22 @@ jobs:
           ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
-            "REPO_DIR='${REPO_DIR}' COMPOSE_FILE='${COMPOSE_FILE}' ENV_FILE='${ENV_FILE}' bash -se" <<'REMOTE'
-          set -uo pipefail
+            "APP='${APP_DIR}' bash -se" <<'REMOTE'
+          # ssh 가 bash -se 로 돌리므로 errexit 가 켜져 있다. 조회는 죽지 않게 둔다.
+          set +e
           echo "HOSTNAME=$(hostname)"
           echo "DOCKER=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '<no access>')"
-          echo "REPO_DIR=${REPO_DIR}"
-          if [ -d "${REPO_DIR}/.git" ]; then
-            echo "REPO_FOUND=yes"
-            echo "REPO_COMMIT=$(git -C "${REPO_DIR}" rev-parse --short HEAD)"
-            echo "REPO_BRANCH=$(git -C "${REPO_DIR}" rev-parse --abbrev-ref HEAD)"
-            echo "REPO_DIRTY=$(test -n "$(git -C "${REPO_DIR}" status --porcelain)" && echo yes || echo no)"
-            echo "ENV_FILE_PRESENT=$([ -f "${REPO_DIR}/${ENV_FILE}" ] && echo yes || echo no)"
-          else
-            echo "REPO_FOUND=no"
-            # 경로를 모를 때 후보를 찾아준다. vars.NOTION_CRON_REPO_DIR 로 고정하면 된다.
-            echo "CANDIDATES<<EOF"
-            find / -xdev -maxdepth 5 -type d -name 'Ascentum-Notion-Cron' 2>/dev/null
-            find / -xdev -maxdepth 5 -type f -name 'notion-cron.env' 2>/dev/null
-            echo "EOF"
-          fi
-          echo "CONTAINERS<<EOF"
-          docker ps --format '{{.Names}}\t{{.Status}}' 2>/dev/null
+          echo "APP_WRITABLE=$([ -w "$APP" ] && echo yes || echo no)"
+          echo "ENV_PRESENT=$([ -f "$APP/ops/oracle/notion-cron.env" ] && echo yes || echo no)"
+          echo "COMPOSE_LABELS<<EOF"
+          for c in $(docker ps --format '{{.Names}}' 2>/dev/null); do
+            echo "$c  config_files=$(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null)"
+          done
           echo "EOF"
+          echo "CONTAINERS<<EOF"
+          docker ps --format '{{.Names}}  {{.Status}}' 2>/dev/null
+          echo "EOF"
+          exit 0
           REMOTE
 
       - name: Deploy
@@ -118,60 +110,83 @@ jobs:
           ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
-            "REPO_DIR='${REPO_DIR}' COMPOSE_FILE='${COMPOSE_FILE}' ENV_FILE='${ENV_FILE}' TARGET_REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' bash -se" <<'REMOTE'
+            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' bash -se" <<'REMOTE'
           set -euo pipefail
 
-          test -d "${REPO_DIR}/.git" || { echo "No git checkout at ${REPO_DIR}. Run DISCOVER first."; exit 1; }
-          test -f "${REPO_DIR}/${ENV_FILE}" || { echo "Missing ${ENV_FILE} on host."; exit 1; }
+          ENV_REL=ops/oracle/notion-cron.env
+          TS="$(date +%Y%m%d%H%M%S)"
+          BACKUP="${HOME}/notion-cron-backups/${TS}"
+          STAGE="$(mktemp -d "/tmp/notion-cron-stage-${TS}-XXXXXX")"
+          trap 'rm -rf "${STAGE}" /tmp/notion-cron-src.tar.gz' EXIT
 
-          cd "${REPO_DIR}"
-          PREV="$(git rev-parse HEAD)"
-          echo "PREV_COMMIT=${PREV}"
+          test -d "${APP}" || { echo "Missing ${APP}"; exit 1; }
+          test -f "${APP}/${ENV_REL}" || { echo "Missing ${APP}/${ENV_REL}"; exit 1; }
 
-          # notion-cron.env 는 gitignore 대상이라 여기 잡히지 않는다. 그 외에 손댄 게
-          # 있다면 호스트에서 직접 고친 흔적이므로 덮어쓰지 않고 멈춘다.
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "Refusing: host checkout has uncommitted changes."
-            git status --porcelain
-            exit 1
+          # 이 스택은 compose 파일 두 개로 떠 있다(archy-proxy override 포함).
+          # 하나만 넘기면 caddy 가 override 없이 재생성되어 프록시가 깨진다.
+          # caddy 컨테이너 라벨의 목록을 그대로 재사용한다.
+          CF_LIST="$(docker inspect oracle-caddy-1 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)"
+          if [ -z "${CF_LIST}" ]; then
+            CF_LIST="${APP}/ops/oracle/docker-compose.yml"
           fi
-
-          git fetch --prune origin
-          git checkout -B deploy "origin/${TARGET_REF}"
-          NEW="$(git rev-parse HEAD)"
-          echo "NEW_COMMIT=${NEW}"
+          COMPOSE_ARGS=()
+          OLD_IFS="${IFS}"; IFS=','
+          for f in ${CF_LIST}; do
+            IFS="${OLD_IFS}"
+            [ -n "$f" ] && COMPOSE_ARGS+=(-f "$f")
+            IFS=','
+          done
+          IFS="${OLD_IFS}"
+          echo "COMPOSE_FILES=${CF_LIST}"
 
           compose() {
-            docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+            docker compose -p oracle --env-file "${APP}/${ENV_REL}" "${COMPOSE_ARGS[@]}" "$@"
           }
 
-          echo "--- building and starting ---"
-          compose up -d --build
+          echo "--- fetching ${REF} ---"
+          curl -fsSL "https://github.com/ascentum/Ascentum-Notion-Cron/archive/refs/heads/${REF}.tar.gz" \
+            -o /tmp/notion-cron-src.tar.gz
+          tar -xzf /tmp/notion-cron-src.tar.gz -C "${STAGE}" --strip-components=1
+          test -f "${STAGE}/package.json" || { echo "Unexpected archive layout"; exit 1; }
 
-          echo "--- waiting for health ---"
+          # 환경파일은 레포에 없는 운영 자산이다. 반드시 옮겨 심는다.
+          cp -a "${APP}/${ENV_REL}" "${STAGE}/${ENV_REL}"
+
+          echo "--- backing up to ${BACKUP} ---"
+          mkdir -p "${BACKUP%/*}"
+          cp -a "${APP}" "${BACKUP}"
+
+          echo "--- swapping artifact ---"
+          find "${APP}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          cp -a "${STAGE}/." "${APP}/"
+
+          cd "${APP}"
+          compose config >/dev/null || { echo "compose config failed"; exit 1; }
+
+          echo "--- build & start (notion-cron only) ---"
+          compose up -d --build notion-cron
+
+          echo "--- health ---"
           ok=no
-          for i in $(seq 1 30); do
+          for i in $(seq 1 36); do
             sleep 5
             code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 10 "${HEALTH_URL}" || true)"
             echo "  attempt ${i}: ${code:-no-response}"
-            if [ "${code}" = "200" ]; then ok=yes; break; fi
+            [ "${code}" = "200" ] && { ok=yes; break; }
           done
 
           if [ "${ok}" != "yes" ]; then
-            echo "!!! health check failed — rolling back to ${PREV}"
-            git checkout -B deploy "${PREV}"
-            compose up -d --build
-            for i in $(seq 1 30); do
-              sleep 5
-              code="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 10 "${HEALTH_URL}" || true)"
-              if [ "${code}" = "200" ]; then echo "rollback healthy"; break; fi
-            done
+            echo "!!! health failed — restoring ${BACKUP}"
+            find "${APP}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            cp -a "${BACKUP}/." "${APP}/"
+            cd "${APP}"
+            compose up -d --build notion-cron || true
             exit 1
           fi
 
-          echo "DEPLOYED=${NEW}"
-          curl -fsS --max-time 10 "${HEALTH_URL}"
-          echo
+          echo "DEPLOYED_REF=${REF}"
+          echo "BACKUP_AT=${BACKUP}"
+          curl -fsS --max-time 10 "${HEALTH_URL}"; echo
           compose ps
           REMOTE
 
