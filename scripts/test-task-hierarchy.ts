@@ -7,7 +7,7 @@ import {
 
 const USER_IDS = {
   youngmin: "youngmin-user",
-  seyeon: "seyeon-user",
+  partner: "partner-user",
 };
 
 async function verifyHierarchyFormatting() {
@@ -67,7 +67,7 @@ async function verifyHierarchyFormatting() {
       title: "Leaf Task",
       category: "Ops",
       parentId: "context-child",
-      users: [USER_IDS.seyeon],
+      users: [USER_IDS.partner],
       isCompleted: true,
       isInScope: true,
       sourceIndex: 3,
@@ -81,7 +81,7 @@ async function verifyHierarchyFormatting() {
     "  - [Execution] Child Task",
     "    - [QA] Grandchild Task",
   ]);
-  assert.deepEqual(formatted.seyeon, [
+  assert.deepEqual(formatted.partner, [
     "[Docs] Context Parent",
     "  - [Release] Context Child",
     "    - [Ops] Leaf Task",
@@ -119,7 +119,7 @@ async function verifyCompletedExpansionRules() {
       title: "Connected Descendant",
       category: "QA",
       parentId: "hidden-bridge",
-      users: [USER_IDS.seyeon],
+      users: [USER_IDS.partner],
       isCompleted: true,
       isInScope: false,
       sourceIndex: Number.POSITIVE_INFINITY,
@@ -145,11 +145,11 @@ async function verifyCompletedExpansionRules() {
       sourceIndex: 1,
     },
     {
-      id: "seyeon-sibling-seed",
-      title: "Seyeon Sibling Seed",
+      id: "partner-sibling-seed",
+      title: "Partner Sibling Seed",
       category: "Ops",
       parentId: "shared-parent",
-      users: [USER_IDS.seyeon],
+      users: [USER_IDS.partner],
       isCompleted: true,
       isInScope: true,
       sourceIndex: 2,
@@ -164,20 +164,20 @@ async function verifyCompletedExpansionRules() {
     "[Docs] Shared Parent",
     "  - [Execution] Youngmin Seed",
   ]);
-  assert.deepEqual(formatted.seyeon, [
+  assert.deepEqual(formatted.partner, [
     "[Docs] Shared Parent",
-    "  - [Ops] Seyeon Sibling Seed",
+    "  - [Ops] Partner Sibling Seed",
   ]);
   assert.equal(
     formatted.youngmin.some((line) => line.includes("Hidden Bridge")),
     false
   );
   assert.equal(
-    formatted.youngmin.some((line) => line.includes("Seyeon Sibling Seed")),
+    formatted.youngmin.some((line) => line.includes("Partner Sibling Seed")),
     false
   );
   assert.equal(
-    formatted.seyeon.some((line) => line.includes("Youngmin Seed")),
+    formatted.partner.some((line) => line.includes("Youngmin Seed")),
     false
   );
 }

@@ -6,9 +6,7 @@ function fillUnrelatedRequiredEnv() {
     "INTERNAL_ADMIN_TOKEN",
     "DISCORD_CHANNEL_ID",
     "NOTION_USER_YOUNGMIN",
-    "NOTION_USER_SEYEON",
     "GCS_API_TOKEN_YOUNGMIN",
-    "GCS_API_TOKEN_SEYEON",
   ];
   for (const name of placeholders) {
     if (!process.env[name]) process.env[name] = "unused-for-this-script";

@@ -1,5 +1,13 @@
 import { Person, SnippetType } from "./types";
 
+const PERSON_NAMES_KO: Record<Person, string> = {
+  youngmin: "박영민",
+};
+
+const PERSON_COLORS: Record<Person, number> = {
+  youngmin: 0x5865f2,
+};
+
 export const DEFAULT_HEALTH_SCORE = 5;
 
 export function normalizeHealthScore(score: number | string | null | undefined): number {
@@ -22,7 +30,7 @@ export function appendHealthCheck(
 }
 
 export function personNameKo(person: Person) {
-  return person === "youngmin" ? "박영민" : "조세연";
+  return PERSON_NAMES_KO[person];
 }
 
 export function snippetTypeKo(type: SnippetType) {
@@ -30,7 +38,7 @@ export function snippetTypeKo(type: SnippetType) {
 }
 
 export function snippetColor(person: Person) {
-  return person === "youngmin" ? 0x5865f2 : 0xeb459e;
+  return PERSON_COLORS[person];
 }
 
 export function buildSnippetTitle(

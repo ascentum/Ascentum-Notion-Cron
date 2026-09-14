@@ -7,14 +7,12 @@ function getClient() {
 interface DailySummary {
   date: string;
   youngminTasks: string[];
-  seyeonTasks: string[];
   allTasks: string[];
 }
 
 export interface SummarizedDay {
   date: string;
   youngmin: string;
-  seyeon: string;
 }
 
 function splitSummaryText(text: string): string[] {
@@ -46,44 +44,30 @@ export function normalizeSummarizedDaily(
   summarizedDaily: SummarizedDay[]
 ): SummarizedDay[] {
   const allowedDates = new Set(dailySummaries.map((summary) => summary.date));
-  const mergedByDate = new Map<
-    string,
-    { youngmin: string[]; seyeon: string[] }
-  >();
+  const mergedByDate = new Map<string, string[]>();
 
   for (const summary of summarizedDaily) {
     if (!allowedDates.has(summary.date)) continue;
 
-    const entry = mergedByDate.get(summary.date) ?? {
-      youngmin: [],
-      seyeon: [],
-    };
-
-    entry.youngmin.push(...splitSummaryText(summary.youngmin));
-    entry.seyeon.push(...splitSummaryText(summary.seyeon));
+    const entry = mergedByDate.get(summary.date) ?? [];
+    entry.push(...splitSummaryText(summary.youngmin));
     mergedByDate.set(summary.date, entry);
   }
 
   return dailySummaries.flatMap((summary) => {
     const merged = mergedByDate.get(summary.date);
-    const youngmin = merged?.youngmin.length
-      ? joinSummaryParts(merged.youngmin)
+    const youngmin = merged?.length
+      ? joinSummaryParts(merged)
       : summary.youngminTasks.length > 0
         ? summary.youngminTasks.join(" / ")
         : "";
-    const seyeon = merged?.seyeon.length
-      ? joinSummaryParts(merged.seyeon)
-      : summary.seyeonTasks.length > 0
-        ? summary.seyeonTasks.join(" / ")
-        : "";
 
-    if (!youngmin && !seyeon) return [];
+    if (!youngmin) return [];
 
     return [
       {
         date: summary.date,
         youngmin,
-        seyeon,
       },
     ];
   });
@@ -104,8 +88,7 @@ export async function generateWeeklySummary(
   const dailyData = dailySummaries
     .map((d) => {
       const ym = d.youngminTasks.length > 0 ? d.youngminTasks.join(" / ") : "";
-      const sy = d.seyeonTasks.length > 0 ? d.seyeonTasks.join(" / ") : "";
-      return `[${d.date}]\n  박영민: ${ym || "(없음)"}\n  조세연: ${sy || "(없음)"}`;
+      return `[${d.date}]\n  박영민: ${ym || "(없음)"}`;
     })
     .join("\n\n");
 
@@ -124,17 +107,16 @@ ${rawData}
 `;
 
   const dailySummaryPrompt = `
-다음은 팀원별 일자별 완료 업무 목록이야.
-각 팀원의 각 일자별 업무를 주요 내용 위주로 간결하게 요약해줘.
+다음은 박영민의 일자별 완료 업무 목록이야.
+각 일자별 업무를 주요 내용 위주로 간결하게 요약해줘.
 
 규칙:
 - 원문 그대로 나열하지 말고, 핵심만 요약
 - 각 날짜의 요약은 " / "로 구분된 짧은 항목들로 작성
-- 업무가 없는 사람은 빈 문자열 ""
 - 업무가 없는 날짜는 포함하지 마
 - 응답은 반드시 아래 JSON 배열만 반환 (다른 텍스트 없이):
 
-[{"date":"YYYY-MM-DD","youngmin":"요약1 / 요약2","seyeon":"요약1 / 요약2"}, ...]
+[{"date":"YYYY-MM-DD","youngmin":"요약1 / 요약2"}, ...]
 
 업무 데이터:
 ${dailyData}
@@ -175,6 +157,49 @@ ${dailyData}
   return { overview, summarizedDaily };
 }
 
+// 데일리 스니펫 프롬프트. 순수 함수로 분리해 형식/지침을 테스트로 고정한다.
+export function buildDailySnippetPrompt(
+  name: string,
+  date: string,
+  tasks: string[]
+): string {
+  return `다음은 ${name}의 오늘(${date}) 완료한 업무 목록이야.
+아래 형식에 맞게 정리해줘.
+
+형식 (섹션 제목은 **굵게**):
+
+**오늘 한 일**
+- [완료한 업무 항목]
+
+**수행 목적**
+- [각 업무의 목적/이유]
+
+**오늘의 배움 또는 남길 말**
+[아래 지침에 따라 2~3문장, 리스트 없이]
+
+'오늘의 배움 또는 남길 말' 작성 지침:
+- 오늘 실제로 만진 것을 반드시 하나 이상 구체적으로 언급할 것
+  (기능 이름, 막혔던 지점, 예상과 달랐던 동작)
+- 일반론으로 도망가지 말 것. 아래 표현은 금지:
+  "~가 얼마나 중요한지 다시 깨달았습니다"
+  "작은 ~도 큰 ~를 줍니다" / "꾸준함" / "성장"
+  "소통의 중요성" / "앞으로도 ~하겠습니다"
+- 깔끔한 결론으로 닫지 말 것. 아직 안 풀린 것,
+  의외였던 것, 다음에 다르게 해볼 것 중 하나를 남길 것
+- 잘 보이려고 쓰지 말 것. 혼자 적는 메모처럼
+- 평서체(~였다, ~해야겠다)로 쓸 것. 존댓말 금지
+
+규칙:
+- 섹션 제목은 반드시 **볼드** 처리
+- '오늘 한 일', '수행 목적'은 - 리스트로
+- 없는 내용은 "- (없음)"으로
+- 자연스럽고 간결하게
+- 위 세 섹션 외에 다른 섹션을 만들지 말 것
+
+완료한 업무:
+${tasks.join("\n")}`;
+}
+
 // 개인별 데일리 스니펫 내용 생성 (헬스체크 제외)
 export async function generateDailySnippetContent(
   name: string,
@@ -188,40 +213,7 @@ export async function generateDailySnippetContent(
     messages: [
       {
         role: "user",
-        content: `다음은 ${name}의 오늘(${date}) 완료한 업무 목록이야.
-아래 형식에 맞게 정리해줘.
-
-형식 (섹션 제목은 **굵게**, 항목은 - 리스트):
-
-**오늘 한 일**
-- [완료한 업무 항목]
-
-**수행 목적**
-- [각 업무의 목적/이유]
-
-**하이라이트**
-- [잘 된 것, 의미 있는 성과]
-
-**로우라이트**
-- [미완료, 막힌 것, 아쉬운 점]
-
-**내일의 우선순위**
-- [오늘 흐름에서 이어질 다음 할 일]
-
-**오늘 내가 팀에 기여한 가치**
-- [팀/프로젝트에 실질적으로 기여한 내용]
-
-**오늘의 배움 또는 남길 말**
-[인사이트, 회고 — 1~2문장, 리스트 없이 자연스럽게]
-
-규칙:
-- 섹션 제목은 반드시 **볼드** 처리
-- 항목은 - 리스트로
-- 없는 내용은 "- (없음)"으로
-- 자연스럽고 간결하게
-
-완료한 업무:
-${tasks.join("\n")}`,
+        content: buildDailySnippetPrompt(name, date, tasks),
       },
     ],
   });

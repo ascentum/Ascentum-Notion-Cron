@@ -20,7 +20,8 @@
     "test:automation-state": "tsx scripts/test-automation-state.ts",
     "test:load-env": "tsx scripts/test-load-env.ts",
     "test:work-calendar-view-filters": "tsx scripts/test-work-calendar-view-filters.ts",
-    "test:work-hours": "tsx scripts/test-work-hours.ts"
+    "test:work-hours": "tsx scripts/test-work-hours.ts",
+    "test:daily-snippet-prompt": "tsx scripts/test-daily-snippet-prompt.ts"
   },
   "dependencies": {
     "@notionhq/client": "^2.3.0",

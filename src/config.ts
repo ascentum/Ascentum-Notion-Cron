@@ -48,11 +48,9 @@ export const config = {
   schedulerTickSeconds: optionalInteger("SCHEDULER_TICK_SECONDS", 60),
   notionUserIds: {
     youngmin: required("NOTION_USER_YOUNGMIN"),
-    seyeon: required("NOTION_USER_SEYEON"),
   },
   gcsApiTokens: {
     youngmin: required("GCS_API_TOKEN_YOUNGMIN"),
-    seyeon: required("GCS_API_TOKEN_SEYEON"),
   },
   // 구글 캘린더 기반 주간 업무 시간 리포트 (미설정이어도 다른 잡에는 영향 없음)
   workHours: {
