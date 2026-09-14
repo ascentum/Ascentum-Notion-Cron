@@ -3,9 +3,7 @@ import assert from "node:assert/strict";
 process.env.INTERNAL_ADMIN_TOKEN = "test-token";
 process.env.DISCORD_CHANNEL_ID = "discord-channel";
 process.env.NOTION_USER_YOUNGMIN = "youngmin-user";
-process.env.NOTION_USER_SEYEON = "seyeon-user";
 process.env.GCS_API_TOKEN_YOUNGMIN = "gcs-youngmin";
-process.env.GCS_API_TOKEN_SEYEON = "gcs-seyeon";
 
 const notionLib = require("../lib/notion") as typeof import("../lib/notion");
 const openaiLib = require("../lib/openai") as typeof import("../lib/openai");
@@ -49,7 +47,9 @@ let appendedOverviewBlocks: any[] | null = null;
 };
 
 async function main() {
-  const { runWeeklyReport } = await import("../src/services/weekly-report-service");
+  const { runWeeklyReport, buildDailyBreakdownBlocks } = await import(
+    "../src/services/weekly-report-service"
+  );
 
   await runWeeklyReport(new Date("2026-06-04T00:00:00.000+09:00"));
 
@@ -61,6 +61,31 @@ async function main() {
   assert.equal(
     richText[1].text.content,
     ": 개발 팀은 로그인 오류와 UI 기능을 개선함."
+  );
+
+  // 대상이 1명이라 column_list를 쓰면 안 된다 (Notion은 컬럼 2개 미만인 column_list를 거부한다).
+  const breakdown = buildDailyBreakdownBlocks([
+    { date: "2026-05-28", youngmin: "로그인 오류 수정" },
+    { date: "2026-05-29", youngmin: "" },
+  ]);
+
+  assert.equal(
+    breakdown.some((block: any) => block.type === "column_list"),
+    false,
+    "expected no column_list for a single-person report"
+  );
+  assert.equal(breakdown[0].type, "heading_3");
+  assert.equal(breakdown[0].heading_3.rich_text[0].text.content, "박영민");
+  assert.equal(breakdown[1].type, "divider");
+  assert.equal(breakdown.length, 3, "expected the empty day to be dropped");
+  assert.equal(breakdown[2].type, "bulleted_list_item");
+  assert.equal(
+    breakdown[2].bulleted_list_item.rich_text[0].text.content,
+    "5/28 "
+  );
+  assert.equal(
+    breakdown[2].bulleted_list_item.rich_text[1].text.content,
+    "로그인 오류 수정"
   );
 }
 

@@ -31,10 +31,7 @@ const commands = [
         description: "특정 사람만 실행 (생략 시 전체)",
         type: 3, // STRING
         required: false,
-        choices: [
-          { name: "박영민", value: "youngmin" },
-          { name: "조세연", value: "seyeon" },
-        ],
+        choices: [{ name: "박영민", value: "youngmin" }],
       },
     ],
   },

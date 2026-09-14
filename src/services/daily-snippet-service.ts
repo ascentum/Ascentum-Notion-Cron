@@ -14,9 +14,9 @@ import { sendDiscordMessage } from "../../lib/discord";
 import { getDailySnippetDateInfo, getPreviousWeekDateRange } from "../../lib/time";
 import { config } from "../config";
 import { listExistingDispatchPeople } from "../database";
-import { buildNoTaskWarningEmbed } from "../snippets";
+import { buildNoTaskWarningEmbed, personNameKo } from "../snippets";
 import { queuePendingSnippetMessage } from "./dispatch-service";
-import { Person } from "../types";
+import { PERSONS, Person } from "../types";
 
 export interface SendDailySnippetsOptions {
   targetPerson?: Person | null;
@@ -28,8 +28,16 @@ function toShortDate(isoDate: string) {
   return `${Number.parseInt(month, 10)}/${Number.parseInt(day, 10)}`;
 }
 
+type TasksByPerson = Record<Person, string[]>;
+
+function emptyTasksByPerson(): TasksByPerson {
+  return Object.fromEntries(
+    PERSONS.map((person) => [person, [] as string[]])
+  ) as TasksByPerson;
+}
+
 function resolveTargets(targetPerson?: Person | null): Person[] {
-  return targetPerson ? [targetPerson] : ["youngmin", "seyeon"];
+  return targetPerson ? [targetPerson] : [...PERSONS];
 }
 
 async function sendNoTaskWarning(person: Person, dateLabel: string) {
@@ -56,7 +64,7 @@ async function handleWeeklySnippets(
 ) {
   const { startIso, endIso } = getPreviousWeekDateRange(todayIso);
   const ranges = splitWorkDateRanges(startIso, endIso);
-  const byDate = new Map<string, { youngmin: string[]; seyeon: string[] }>();
+  const byDate = new Map<string, TasksByPerson>();
 
   for (const range of ranges) {
     if (range.source === "latest") {
@@ -77,9 +85,10 @@ async function handleWeeklySnippets(
           datePages,
           config.notionUserIds
         );
-        const entry = byDate.get(date) ?? { youngmin: [], seyeon: [] };
-        entry.youngmin.push(...(tasksByPerson.youngmin ?? []));
-        entry.seyeon.push(...(tasksByPerson.seyeon ?? []));
+        const entry = byDate.get(date) ?? emptyTasksByPerson();
+        for (const person of PERSONS) {
+          entry[person].push(...(tasksByPerson[person] ?? []));
+        }
         byDate.set(date, entry);
       }
 
@@ -92,10 +101,13 @@ async function handleWeeklySnippets(
     );
 
     for (const item of legacyItems) {
-      const entry = byDate.get(item.date) ?? { youngmin: [], seyeon: [] };
+      const entry = byDate.get(item.date) ?? emptyTasksByPerson();
       const formatted = formatWorkItem(item);
-      if (item.users.includes(config.notionUserIds.youngmin)) entry.youngmin.push(formatted);
-      if (item.users.includes(config.notionUserIds.seyeon)) entry.seyeon.push(formatted);
+      for (const person of PERSONS) {
+        if (item.users.includes(config.notionUserIds[person])) {
+          entry[person].push(formatted);
+        }
+      }
       byDate.set(item.date, entry);
     }
   }
@@ -107,42 +119,24 @@ async function handleWeeklySnippets(
     (person) => force || !existing.includes(person)
   );
 
-  const youngminWeekly = sortedByDate
-    .filter(([, value]) => value.youngmin.length > 0)
-    .map(([date, value]) => ({ date, tasks: value.youngmin }));
-  const seyeonWeekly = sortedByDate
-    .filter(([, value]) => value.seyeon.length > 0)
-    .map(([date, value]) => ({ date, tasks: value.seyeon }));
-
   const jobs: Promise<unknown>[] = [];
 
-  if (targets.includes("youngmin")) {
-    if (youngminWeekly.length > 0) {
-      jobs.push(
-        generateWeeklySnippetContent(
-          "박영민",
-          toShortDate(startIso),
-          toShortDate(endIso),
-          youngminWeekly
-        ).then((content) => queueSnippet("youngmin", "weekly", weekLabel, content))
-      );
-    } else {
-      jobs.push(sendNoTaskWarning("youngmin", weekLabel));
-    }
-  }
+  for (const person of targets) {
+    const weeklyTasks = sortedByDate
+      .filter(([, value]) => value[person].length > 0)
+      .map(([date, value]) => ({ date, tasks: value[person] }));
 
-  if (targets.includes("seyeon")) {
-    if (seyeonWeekly.length > 0) {
+    if (weeklyTasks.length > 0) {
       jobs.push(
         generateWeeklySnippetContent(
-          "조세연",
+          personNameKo(person),
           toShortDate(startIso),
           toShortDate(endIso),
-          seyeonWeekly
-        ).then((content) => queueSnippet("seyeon", "weekly", weekLabel, content))
+          weeklyTasks
+        ).then((content) => queueSnippet(person, "weekly", weekLabel, content))
       );
     } else {
-      jobs.push(sendNoTaskWarning("seyeon", weekLabel));
+      jobs.push(sendNoTaskWarning(person, weekLabel));
     }
   }
 
@@ -186,9 +180,8 @@ export async function sendDailySnippets(
   for (const person of targets) {
     const tasks = tasksByPerson[person] ?? [];
     if (tasks.length > 0) {
-      const nameKo = person === "youngmin" ? "박영민" : "조세연";
       jobs.push(
-        generateDailySnippetContent(nameKo, targetIsoDate, tasks).then((content) =>
+        generateDailySnippetContent(personNameKo(person), targetIsoDate, tasks).then((content) =>
           queueSnippet(person, "daily", shortDate, content)
         )
       );

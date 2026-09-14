@@ -39,6 +39,9 @@ jobs:
           NOTION_WORK_CALENDAR_DB_ID: ${{ secrets.NOTION_WORK_CALENDAR_DB_ID }}
           NOTION_WORK_CALENDAR_TITLE_PREFIX: ${{ vars.NOTION_WORK_CALENDAR_TITLE_PREFIX || '어센텀 업무' }}
           NOTION_WORK_CALENDAR_DATE_PROPERTY_NAME: ${{ vars.NOTION_WORK_CALENDAR_DATE_PROPERTY_NAME || '일정' }}
+          NOTION_WORK_CALENDAR_PERSON_PROPERTY_NAME: ${{ vars.NOTION_WORK_CALENDAR_PERSON_PROPERTY_NAME || '사람' }}
+          # 박영민 캘린더 페이지만 보정한다. 이 ID는 .env.example에도 평문으로 있는 비밀값이 아닌 값이다.
+          NOTION_WORK_CALENDAR_PERSON_ID: ${{ secrets.NOTION_USER_YOUNGMIN || vars.NOTION_WORK_CALENDAR_PERSON_ID || '7ea05b23-6a71-4a66-992a-5683f75e4145' }}
           NOTION_LINKED_VIEW_DATE_PROPERTY_NAME: ${{ vars.NOTION_LINKED_VIEW_DATE_PROPERTY_NAME || '완료일' }}
           NOTION_WORK_CALENDAR_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || vars.NOTION_WORK_CALENDAR_LOOKBACK_DAYS || '2' }}
           TARGET_DATE: ${{ github.event.inputs.target_date || '' }}

@@ -49,7 +49,7 @@ async function main() {
 
   database.createDispatch({
     discordMessageId: "message-2",
-    person: "seyeon",
+    person: "youngmin",
     snippetType: "weekly",
     dateLabel: "4/14~4/20",
     content: "초안",

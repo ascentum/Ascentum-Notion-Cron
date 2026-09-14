@@ -1,6 +1,6 @@
 import { sendDailySnippets } from "./services/daily-snippet-service";
 import { finalizeDispatch } from "./services/dispatch-service";
-import { DEFAULT_HEALTH_SCORE } from "./snippets";
+import { DEFAULT_HEALTH_SCORE, personNameKo } from "./snippets";
 import { Person, SnippetType } from "./types";
 
 function interactionResponse(body: object, status = 200) {
@@ -44,11 +44,7 @@ async function handleSlashCommand(interaction: any) {
     });
   });
 
-  const targetLabel = personOption
-    ? personOption === "youngmin"
-      ? "박영민"
-      : "조세연"
-    : "전체";
+  const targetLabel = personOption ? personNameKo(personOption) : "전체";
 
   return interactionResponse({
     type: 4,

@@ -101,91 +101,47 @@ function buildContentBlocks(overview: string, startShort: string, endShort: stri
   ];
 }
 
-function buildColumnBlocks(summarizedDaily: SummarizedDay[]): any[] {
-  const byDate = new Map<string, { youngmin: string[]; seyeon: string[] }>();
+// 데일리 진행상황 블록. 대상자가 1명이라 column_list를 쓰지 않는다.
+// (Notion column_list는 컬럼이 2개 이상이어야 하므로 1인 구성에서는 생성 자체가 거부된다.)
+export function buildDailyBreakdownBlocks(summarizedDaily: SummarizedDay[]): any[] {
+  const byDate = new Map<string, string[]>();
 
   for (const summary of summarizedDaily) {
+    if (!summary.youngmin) continue;
     const shortDate = toShortDate(summary.date);
-    const entry = byDate.get(shortDate) ?? { youngmin: [], seyeon: [] };
-    if (summary.youngmin) entry.youngmin.push(summary.youngmin);
-    if (summary.seyeon) entry.seyeon.push(summary.seyeon);
+    const entry = byDate.get(shortDate) ?? [];
+    entry.push(summary.youngmin);
     byDate.set(shortDate, entry);
   }
 
-  const toBullets = (entries: { date: string; text: string }[]) =>
-    entries.map((entry) => ({
-      object: "block",
-      type: "bulleted_list_item",
-      bulleted_list_item: {
-        rich_text: [
-          {
-            type: "text",
-            text: { content: `${entry.date} ` },
-            annotations: { bold: true },
-          },
-          {
-            type: "text",
-            text: { content: entry.text },
-          },
-        ],
-      },
-    }));
-
-  const youngminBullets = toBullets(
-    [...byDate.entries()]
-      .filter(([, entry]) => entry.youngmin.length > 0)
-      .map(([date, entry]) => ({ date, text: entry.youngmin.join(" / ") }))
-  );
-
-  const seyeonBullets = toBullets(
-    [...byDate.entries()]
-      .filter(([, entry]) => entry.seyeon.length > 0)
-      .map(([date, entry]) => ({ date, text: entry.seyeon.join(" / ") }))
-  );
+  const bullets = [...byDate.entries()].map(([date, texts]) => ({
+    object: "block",
+    type: "bulleted_list_item",
+    bulleted_list_item: {
+      rich_text: [
+        {
+          type: "text",
+          text: { content: `${date} ` },
+          annotations: { bold: true },
+        },
+        {
+          type: "text",
+          text: { content: texts.join(" / ") },
+        },
+      ],
+    },
+  }));
 
   return [
     {
       object: "block",
-      type: "column_list",
-      column_list: {
-        children: [
-          {
-            object: "block",
-            type: "column",
-            column: {
-              children: [
-                {
-                  object: "block",
-                  type: "heading_3",
-                  heading_3: {
-                    rich_text: [{ type: "text", text: { content: "박영민" } }],
-                  },
-                },
-                { object: "block", type: "divider", divider: {} },
-                ...youngminBullets,
-              ],
-            },
-          },
-          {
-            object: "block",
-            type: "column",
-            column: {
-              children: [
-                {
-                  object: "block",
-                  type: "heading_3",
-                  heading_3: {
-                    rich_text: [{ type: "text", text: { content: "조세연" } }],
-                  },
-                },
-                { object: "block", type: "divider", divider: {} },
-                ...seyeonBullets,
-              ],
-            },
-          },
-        ],
+      type: "heading_3",
+      heading_3: {
+        rich_text: [{ type: "text", text: { content: "박영민" } }],
       },
     },
+    { object: "block", type: "divider", divider: {} },
+    ...bullets,
   ];
 }
 
@@ -193,22 +149,17 @@ export async function runWeeklyReport(now: Date = new Date()) {
   const { isoDate: todayIso } = getKstDateInfo(now);
   const { startIso, endIso } = getPreviousWeekDateRange(todayIso);
   const workItems = await getWorkItems(startIso, endIso);
-  const byDate = new Map<
-    string,
-    { youngmin: string[]; seyeon: string[]; all: string[] }
-  >();
+  const byDate = new Map<string, { youngmin: string[]; all: string[] }>();
 
   for (const item of workItems) {
     const formatted = formatWorkItem(item);
     const entry = byDate.get(item.date) ?? {
       youngmin: [],
-      seyeon: [],
       all: [],
     };
 
     entry.all.push(formatted);
     if (item.users.includes(config.notionUserIds.youngmin)) entry.youngmin.push(formatted);
-    if (item.users.includes(config.notionUserIds.seyeon)) entry.seyeon.push(formatted);
     byDate.set(item.date, entry);
   }
 
@@ -217,7 +168,6 @@ export async function runWeeklyReport(now: Date = new Date()) {
     .map(([date, tasks]) => ({
       date,
       youngminTasks: tasks.youngmin,
-      seyeonTasks: tasks.seyeon,
       allTasks: tasks.all,
     }));
 
@@ -270,7 +220,7 @@ export async function runWeeklyReport(now: Date = new Date()) {
 
   const toggleBlockId = findToggleInBlocks(appendedBlocks);
   if (toggleBlockId) {
-    await appendContent(toggleBlockId, buildColumnBlocks(summarizedDaily));
+    await appendContent(toggleBlockId, buildDailyBreakdownBlocks(summarizedDaily));
     await deleteEmptyParagraph(toggleBlockId);
   }
 

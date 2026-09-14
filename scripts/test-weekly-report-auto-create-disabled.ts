@@ -3,9 +3,7 @@ import assert from "node:assert/strict";
 process.env.INTERNAL_ADMIN_TOKEN = "test-token";
 process.env.DISCORD_CHANNEL_ID = "discord-channel";
 process.env.NOTION_USER_YOUNGMIN = "youngmin-user";
-process.env.NOTION_USER_SEYEON = "seyeon-user";
 process.env.GCS_API_TOKEN_YOUNGMIN = "gcs-youngmin";
-process.env.GCS_API_TOKEN_SEYEON = "gcs-seyeon";
 
 const { loadEnvironment } = require("../src/load-env") as typeof import("../src/load-env");
 loadEnvironment();

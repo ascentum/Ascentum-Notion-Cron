@@ -8,6 +8,7 @@ import { sendDailySnippets } from "./services/daily-snippet-service";
 import { retryFailedDispatch, sweepDueDispatches } from "./services/dispatch-service";
 import { runWeeklyReport } from "./services/weekly-report-service";
 import { runWorkHoursReport } from "./services/work-hours-service";
+import { PERSONS, Person } from "./types";
 
 function requireInternalToken(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.header("authorization");
@@ -18,8 +19,8 @@ function requireInternalToken(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-function normalizePerson(input: unknown) {
-  return input === "youngmin" || input === "seyeon" ? input : null;
+function normalizePerson(input: unknown): Person | null {
+  return PERSONS.includes(input as Person) ? (input as Person) : null;
 }
 
 async function main() {

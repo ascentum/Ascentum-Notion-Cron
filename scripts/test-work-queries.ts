@@ -124,38 +124,37 @@ function verifySummarizedDailyNormalization() {
       {
         date: "2026-04-01",
         youngminTasks: ["Feature B09", "자동 배포 구현"],
-        seyeonTasks: ["GCS pulse 연동 디코 봇 수정"],
         allTasks: [],
       },
       {
         date: "2026-03-31",
         youngminTasks: ["업무 DB 최적화"],
-        seyeonTasks: [],
+        allTasks: [],
+      },
+      {
+        date: "2026-03-30",
+        youngminTasks: [],
         allTasks: [],
       },
     ],
     [
-      { date: "2026-04-01", youngmin: "Feature B09", seyeon: "" },
-      { date: "2026-04-01", youngmin: "자동 배포 구현", seyeon: "" },
-      {
-        date: "2026-04-01",
-        youngmin: "",
-        seyeon: "GCS pulse 연동 디코 봇 수정",
-      },
-      { date: "2026-04-02", youngmin: "무시해야 하는 날짜", seyeon: "" },
+      { date: "2026-04-01", youngmin: "Feature B09" },
+      { date: "2026-04-01", youngmin: "자동 배포 구현" },
+      { date: "2026-04-01", youngmin: "Feature B09" },
+      { date: "2026-04-02", youngmin: "무시해야 하는 날짜" },
+      { date: "2026-03-30", youngmin: "" },
     ]
   );
 
+  // 중복 제거, 범위 밖 날짜 제외, 요약이 비면 원본 업무로 폴백, 업무 없는 날짜는 탈락
   assert.deepEqual(normalized, [
     {
       date: "2026-04-01",
       youngmin: "Feature B09 / 자동 배포 구현",
-      seyeon: "GCS pulse 연동 디코 봇 수정",
     },
     {
       date: "2026-03-31",
       youngmin: "업무 DB 최적화",
-      seyeon: "",
     },
   ]);
 }

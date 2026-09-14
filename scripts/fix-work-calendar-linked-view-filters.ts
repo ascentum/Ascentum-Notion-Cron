@@ -4,6 +4,7 @@ import { loadEnvironment } from "../src/load-env";
 const NOTION_VERSION = "2026-03-11";
 const DEFAULT_CALENDAR_TITLE_PREFIX = "어센텀 업무";
 const DEFAULT_CALENDAR_DATE_PROPERTY_NAME = "일정";
+const DEFAULT_CALENDAR_PERSON_PROPERTY_NAME = "사람";
 const DEFAULT_LINKED_VIEW_DATE_PROPERTY_NAME = "완료일";
 const DEFAULT_LOOKBACK_DAYS = 2;
 const DEFAULT_LOOKAHEAD_DAYS = 0;
@@ -433,34 +434,54 @@ function getPageDate(page: PageResponse, propertyName: string): string | null {
   return typeof start === "string" ? toKstIsoDate(start) : null;
 }
 
-async function queryCalendarPages(
-  calendarDataSourceId: string,
-  calendarDatePropertyName: string,
-  startDate: string,
-  endDate: string
-): Promise<PageResponse[]> {
+// 캘린더 페이지 제목은 담당자와 무관하게 "어센텀 업무 YYYY-MM-DD"로 동일하다.
+// 따라서 대상자 구분은 제목이 아니라 `사람`(people) 속성으로만 가능하다.
+export function buildCalendarQueryFilter(options: {
+  calendarDatePropertyName: string;
+  calendarPersonPropertyName: string;
+  calendarPersonId: string;
+  startDate: string;
+  endDate: string;
+}): JsonRecord {
+  return {
+    and: [
+      {
+        property: options.calendarDatePropertyName,
+        date: { on_or_after: options.startDate },
+      },
+      {
+        property: options.calendarDatePropertyName,
+        date: { on_or_before: options.endDate },
+      },
+      {
+        property: options.calendarPersonPropertyName,
+        people: { contains: options.calendarPersonId },
+      },
+    ],
+  };
+}
+
+async function queryCalendarPages(options: {
+  calendarDataSourceId: string;
+  calendarDatePropertyName: string;
+  calendarPersonPropertyName: string;
+  calendarPersonId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<PageResponse[]> {
   const pages: PageResponse[] = [];
   let cursor: string | undefined;
 
   do {
     const response = await notionRequest<ListResponse<PageResponse>>(
-      `/data_sources/${calendarDataSourceId}/query`,
+      `/data_sources/${options.calendarDataSourceId}/query`,
       {
         method: "POST",
         body: JSON.stringify({
-          filter: {
-            and: [
-              {
-                property: calendarDatePropertyName,
-                date: { on_or_after: startDate },
-              },
-              {
-                property: calendarDatePropertyName,
-                date: { on_or_before: endDate },
-              },
-            ],
-          },
-          sorts: [{ property: calendarDatePropertyName, direction: "ascending" }],
+          filter: buildCalendarQueryFilter(options),
+          sorts: [
+            { property: options.calendarDatePropertyName, direction: "ascending" },
+          ],
           page_size: 100,
           ...(cursor ? { start_cursor: cursor } : {}),
         }),
@@ -566,6 +587,18 @@ async function main() {
   const calendarDatePropertyName =
     process.env.NOTION_WORK_CALENDAR_DATE_PROPERTY_NAME ??
     DEFAULT_CALENDAR_DATE_PROPERTY_NAME;
+  const calendarPersonPropertyName =
+    process.env.NOTION_WORK_CALENDAR_PERSON_PROPERTY_NAME ??
+    DEFAULT_CALENDAR_PERSON_PROPERTY_NAME;
+  // 대상자를 못 찾으면 조용히 전원을 처리하는 대신 즉시 실패한다.
+  const calendarPersonId =
+    process.env.NOTION_WORK_CALENDAR_PERSON_ID ?? process.env.NOTION_USER_YOUNGMIN;
+  if (!calendarPersonId) {
+    throw new Error(
+      "Missing NOTION_WORK_CALENDAR_PERSON_ID (or NOTION_USER_YOUNGMIN). " +
+        "Set it to the Notion user ID whose 업무 캘린더 pages should be fixed."
+    );
+  }
   const linkedViewDatePropertyName =
     process.env.NOTION_LINKED_VIEW_DATE_PROPERTY_NAME ??
     DEFAULT_LINKED_VIEW_DATE_PROPERTY_NAME;
@@ -596,12 +629,14 @@ async function main() {
     linkedViewDatePropertyId
   );
 
-  const calendarPages = await queryCalendarPages(
+  const calendarPages = await queryCalendarPages({
     calendarDataSourceId,
     calendarDatePropertyName,
+    calendarPersonPropertyName,
+    calendarPersonId,
     startDate,
-    endDate
-  );
+    endDate,
+  });
   const targetPages = calendarPages
     .map((page) => ({
       page,
@@ -643,6 +678,8 @@ async function main() {
         endDate,
         calendarDatabaseId,
         calendarDataSourceId,
+        calendarPersonPropertyName,
+        calendarPersonId,
         workDatabaseId,
         workDataSourceId,
         linkedViewDatePropertyName,

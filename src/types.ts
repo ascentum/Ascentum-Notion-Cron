@@ -1,4 +1,6 @@
-export type Person = "youngmin" | "seyeon";
+// 스니펫 대상자 목록. 팀원이 바뀌면 여기와 config의 notionUserIds/gcsApiTokens만 고치면 된다.
+export const PERSONS = ["youngmin"] as const;
+export type Person = (typeof PERSONS)[number];
 export type SnippetType = "daily" | "weekly";
 export type DispatchStatus = "pending" | "posting" | "posted" | "skipped" | "failed";
 export type CompletionSource =

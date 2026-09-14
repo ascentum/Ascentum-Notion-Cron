@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildCalendarQueryFilter,
   getFirstBlockIdByType,
   replaceLinkedViewDateFilters,
 } from "./fix-work-calendar-linked-view-filters";
@@ -130,6 +131,27 @@ assert.equal(forcedDate.changed, true);
 assert.deepEqual(forcedDate.value.filter, {
   property: "HDdB",
   date: { equals: "2026-05-15" },
+});
+
+// 캘린더 페이지 조회는 날짜뿐 아니라 담당자(people)로도 좁혀야 한다.
+// 같은 날짜에 담당자만 다른 동일 제목 페이지가 있어 제목만으로는 구분되지 않기 때문.
+const calendarFilter = buildCalendarQueryFilter({
+  calendarDatePropertyName: "일정",
+  calendarPersonPropertyName: "사람",
+  calendarPersonId: "7ea05b23-6a71-4a66-992a-5683f75e4145",
+  startDate: "2026-09-12",
+  endDate: "2026-09-14",
+});
+
+assert.deepEqual(calendarFilter, {
+  and: [
+    { property: "일정", date: { on_or_after: "2026-09-12" } },
+    { property: "일정", date: { on_or_before: "2026-09-14" } },
+    {
+      property: "사람",
+      people: { contains: "7ea05b23-6a71-4a66-992a-5683f75e4145" },
+    },
+  ],
 });
 
 console.log("work calendar linked view filter checks passed");
