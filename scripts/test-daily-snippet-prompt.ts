@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { buildDailySnippetPrompt } from "../lib/openai";
+import * as openai from "../lib/openai";
+
+const { buildDailySnippetPrompt } = openai;
 
 const prompt = buildDailySnippetPrompt("박영민", "2026-09-13", [
   "[Ascentum] 스니펫 양식 개편",
@@ -34,5 +36,36 @@ assert.ok(prompt.includes("평서체(~였다, ~해야겠다)로 쓸 것. 존댓�
 assert.ok(prompt.includes("박영민"));
 assert.ok(prompt.includes("2026-09-13"));
 assert.ok(prompt.includes("[Ascentum] 스니펫 양식 개편\n[Archy] 링크드뷰 필터 보정"));
+
+// 모델이 부모 업무만 반환해도 오늘 한 일에는 입력된 하위 업무를 모두 복원해야 한다.
+const restoreDailyTaskSection = (openai as any).restoreDailyTaskSection;
+assert.equal(typeof restoreDailyTaskSection, "function");
+
+const repaired = restoreDailyTaskSection(
+  `**오늘 한 일**
+- [Archy] App 백엔드 수정
+- [Archy] App UI 수정
+
+**수행 목적**
+- 앱 안정화
+
+**오늘의 배움 또는 남길 말**
+관계형 데이터 확인이 필요했다.`,
+  [
+    "[Archy] App 백엔드 수정",
+    "  - [Archy] Apple 계정 로그인 시 정보 수집 방식 개선",
+    "[Archy] App UI 수정",
+    "  - [Archy] 온보딩, 홈 화면 UI/UX 수정",
+  ]
+);
+
+assert.ok(
+  repaired.includes(
+    "  - [Archy] Apple 계정 로그인 시 정보 수집 방식 개선"
+  )
+);
+assert.ok(
+  repaired.includes("  - [Archy] 온보딩, 홈 화면 UI/UX 수정")
+);
 
 console.log("daily snippet prompt checks passed");
