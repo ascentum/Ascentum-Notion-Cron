@@ -203,6 +203,23 @@ export function buildDailySnippetPrompt(
 ${tasks.join("\n")}`;
 }
 
+export function restoreDailyTaskSection(
+  content: string,
+  tasks: string[]
+): string {
+  const taskLines = tasks.length
+    ? tasks.map((task) => (/^\s+- /.test(task) ? task : `- ${task}`))
+    : ["- (없음)"];
+  const taskSection = ["**오늘 한 일**", ...taskLines].join("\n");
+  const taskSectionPattern = /\*\*오늘 한 일\*\*[\s\S]*?(?=\n\*\*수행 목적\*\*|$)/;
+
+  if (taskSectionPattern.test(content)) {
+    return content.replace(taskSectionPattern, () => taskSection).trim();
+  }
+
+  return `${taskSection}\n\n${content}`.trim();
+}
+
 // 개인별 데일리 스니펫 내용 생성 (헬스체크 제외)
 export async function generateDailySnippetContent(
   name: string,
@@ -220,7 +237,7 @@ export async function generateDailySnippetContent(
       },
     ],
   });
-  return res.choices[0].message.content ?? "";
+  return restoreDailyTaskSection(res.choices[0].message.content ?? "", tasks);
 }
 
 // 개인별 주간 스니펫 내용 생성
