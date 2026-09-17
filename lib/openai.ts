@@ -214,7 +214,7 @@ export function restoreDailyTaskSection(
   const taskSectionPattern = /\*\*오늘 한 일\*\*[\s\S]*?(?=\n\*\*수행 목적\*\*|$)/;
 
   if (taskSectionPattern.test(content)) {
-    return content.replace(taskSectionPattern, () => taskSection).trim();
+    return content.replace(taskSectionPattern, () => `${taskSection}\n`).trim();
   }
 
   return `${taskSection}\n\n${content}`.trim();
