@@ -67,5 +67,10 @@ assert.ok(
 assert.ok(
   repaired.includes("  - [Archy] 온보딩, 홈 화면 UI/UX 수정")
 );
+assert.ok(
+  repaired.includes(
+    "  - [Archy] 온보딩, 홈 화면 UI/UX 수정\n\n**수행 목적**"
+  )
+);
 
 console.log("daily snippet prompt checks passed");
