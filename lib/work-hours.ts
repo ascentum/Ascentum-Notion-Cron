@@ -3,6 +3,7 @@ import { shiftIsoDate } from "./time";
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 const KST_OFFSET_MS = 9 * MS_PER_HOUR;
+const ALL_TIMED_EVENTS_FROM_ISO = "2026-09-01";
 
 export interface CalendarEventLike {
   summary?: string | null;
@@ -72,7 +73,8 @@ export function getWeekLabel(weekStartIso: string): string {
   return `${monthNumber}월 ${weekOfMonth}째주`;
 }
 
-// 키워드가 포함된 시간 지정 일정만 근무로 인정 (종일 일정은 근무 시간 산정 불가라 제외)
+// 2026-09-01(KST)부터 모든 시간 지정 일정을 인정하고, 이전에는 제목 키워드로 제한한다.
+// 종일 일정은 제외하며, 날짜 경계를 넘는 일정은 각 날짜에 해당하는 조건을 적용한다.
 export function toWorkSessions(
   events: CalendarEventLike[],
   keyword: string
@@ -81,7 +83,7 @@ export function toWorkSessions(
 
   for (const event of events) {
     const summary = event.summary ?? "";
-    if (!summary.includes(keyword)) continue;
+    const matchesKeyword = summary.includes(keyword);
 
     const startDateTime = event.start?.dateTime;
     const endDateTime = event.end?.dateTime;
@@ -98,12 +100,15 @@ export function toWorkSessions(
     const lastDay = toKstDayIndex(endMs - 1);
 
     for (let day = firstDay; day <= lastDay; day += 1) {
+      const dateIso = kstDayIndexToIso(day);
+      if (!matchesKeyword && dateIso < ALL_TIMED_EVENTS_FROM_ISO) continue;
+
       const segmentStart = Math.max(startMs, kstDayStartMs(day));
       const segmentEnd = Math.min(endMs, kstDayStartMs(day + 1));
       if (segmentEnd <= segmentStart) continue;
 
       sessions.push({
-        dateIso: kstDayIndexToIso(day),
+        dateIso,
         hours: roundTo((segmentEnd - segmentStart) / MS_PER_HOUR, 2),
       });
     }
