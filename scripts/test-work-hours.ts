@@ -66,10 +66,64 @@ function verifyWorkSessions() {
 
   const sessions = toWorkSessions(events, "영민 근무");
 
-  // 키워드 미포함 일정과 종일 일정은 제외
-  assert.equal(sessions.length, 2);
+  // 9월부터 키워드 미포함 일정도 포함하고, 종일 일정은 제외
+  assert.equal(sessions.length, 3);
   assert.deepEqual(sessions[0], { dateIso: "2026-09-01", hours: 4.5 });
   assert.deepEqual(sessions[1], { dateIso: "2026-09-02", hours: 5 });
+  assert.deepEqual(sessions[2], { dateIso: "2026-09-02", hours: 5 });
+}
+
+function verifySeptemberEligibilityBoundary() {
+  const sessions = toWorkSessions(
+    [
+      {
+        summary: "미팅",
+        start: { dateTime: "2026-08-31T10:00:00+09:00" },
+        end: { dateTime: "2026-08-31T11:00:00+09:00" },
+      },
+      {
+        summary: "[어센텀] 영민 근무 (원격)",
+        start: { dateTime: "2026-08-31T10:00:00+09:00" },
+        end: { dateTime: "2026-08-31T12:00:00+09:00" },
+      },
+      {
+        summary: "미팅",
+        start: { dateTime: "2026-08-31T23:00:00+09:00" },
+        end: { dateTime: "2026-09-01T02:00:00+09:00" },
+      },
+      {
+        // UTC 8월 31일 15시는 KST 9월 1일 00시: 제목이 없어도 포함
+        start: { dateTime: "2026-08-31T15:00:00Z" },
+        end: { dateTime: "2026-08-31T16:00:00Z" },
+      },
+      {
+        summary: "종일 미팅",
+        start: { date: "2026-09-01" },
+        end: { date: "2026-09-02" },
+      },
+      {
+        summary: "해밀턴 미팅",
+        start: { dateTime: "2026-10-02T15:00:00+09:00" },
+        end: { dateTime: "2026-10-02T16:00:00+09:00" },
+      },
+      {
+        summary: "끝이 시작보다 빠른 일정",
+        start: { dateTime: "2026-09-01T10:00:00+09:00" },
+        end: { dateTime: "2026-09-01T09:00:00+09:00" },
+      },
+    ],
+    "영민 근무"
+  );
+  assert.deepEqual(sessions, [
+    { dateIso: "2026-08-31", hours: 2 },
+    { dateIso: "2026-09-01", hours: 2 },
+    { dateIso: "2026-09-01", hours: 1 },
+    { dateIso: "2026-10-02", hours: 1 },
+  ]);
+  // 주간 합계와 누적 평균에도 9월 이후의 새 조건이 반영된다.
+  const weekly = sumHoursByWeek(sessions);
+  assert.equal(weekly.get("2026-08-31"), 5);
+  assert.equal(computeAverageHours(weekly, "2026-09-28"), 1.2);
 }
 
 function verifyMidnightSplit() {
@@ -276,6 +330,7 @@ verifyWeekStart();
 verifyWeekRange();
 verifyWeekLabel();
 verifyWorkSessions();
+verifySeptemberEligibilityBoundary();
 verifyMidnightSplit();
 verifySumHoursByWeek();
 verifyFormatHours();
