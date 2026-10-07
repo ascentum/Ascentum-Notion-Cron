@@ -4,7 +4,6 @@ import {
   buildPropertyKeys,
   getFirstDataSourceId,
   getPageDate,
-  getPageTitle,
   listLinkedWorkViews,
   notionRequest,
   NotionApiError,
@@ -151,7 +150,12 @@ export async function runHamiltonCalendar(
       startDate: targetDate, endDate: targetDate,
     });
     if (existing.length > 1) throw new Error(`Multiple Hamilton pages exist for ${targetDate}`);
-    const title = `${process.env.NOTION_WORK_CALENDAR_TITLE_PREFIX ?? "어센텀 업무"} ${targetDate}`;
+    const titlePrefix = `${process.env.NOTION_WORK_CALENDAR_TITLE_PREFIX ?? "어센텀 업무"} `;
+    const title = `${titlePrefix}@${targetDate}`;
+    const titleRichText = [
+      { type: "text", text: { content: titlePrefix } },
+      { type: "mention", mention: { type: "date", date: { start: targetDate } } },
+    ];
     if (dryRun) return {
       status: existing.length ? "would-repair" : "would-create", dryRun, targetDate,
       title, templateId, personId, pageId: existing[0]?.id ?? state?.pageId ?? null,
@@ -175,7 +179,7 @@ export async function runHamiltonCalendar(
           body: JSON.stringify({
             parent: { type: "data_source_id", data_source_id: calendarDataSourceId },
             properties: {
-              [titleName]: { title: [{ text: { content: title } }] },
+              [titleName]: { title: titleRichText },
               [dateName]: { date: { start: targetDate } },
               [personName]: { people: [{ id: personId }] },
             },
@@ -208,7 +212,7 @@ export async function runHamiltonCalendar(
     saveCalendarPageRun(targetDate, owner, {});
     await notionRequest(`/pages/${pageId}`, {
       method: "PATCH", body: JSON.stringify({ properties: {
-        [titleName]: { title: [{ text: { content: title } }] },
+        [titleName]: { title: titleRichText },
         [dateName]: { date: { start: targetDate } },
         [personName]: { people: [{ id: personId }] },
       } }),
@@ -238,7 +242,14 @@ export async function runHamiltonCalendar(
     }
     const verified = await notionRequest<PageResponse>(`/pages/${pageId}`);
     const people = verified.properties?.[personName]?.people;
-    if (getPageTitle(verified) !== title || getPageDate(verified, dateName) !== targetDate ||
+    const titleParts = verified.properties?.[titleName]?.title;
+    // Date mention plain_text is a display label, not a stable identifier.
+    const titleMatches = Array.isArray(titleParts) && titleParts.length === 2 &&
+      titleParts[0]?.type === "text" && titleParts[0]?.text?.content === titlePrefix &&
+      titleParts[1]?.type === "mention" && titleParts[1]?.mention?.type === "date" &&
+      titleParts[1]?.mention?.date?.start === targetDate &&
+      !titleParts[1]?.mention?.date?.end;
+    if (!titleMatches || getPageDate(verified, dateName) !== targetDate ||
       !Array.isArray(people) || people.length !== 1 || people[0].id !== personId) {
       throw new Error(`Hamilton page property verification failed for ${pageId}`);
     }

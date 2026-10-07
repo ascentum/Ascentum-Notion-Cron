@@ -61,7 +61,7 @@ class NotionFake {
       const type = Object.keys(value)[0];
       responseProperties[name] = { ...clone(value), type };
       if (type === "title") responseProperties[name].title = value.title.map((part: Json) => ({
-        ...part, plain_text: part.text.content,
+        ...part, plain_text: part.text?.content ?? "localized date label",
       }));
     }
     const page = { id, parent: { data_source_id: "calendar-source" }, properties: responseProperties };
@@ -239,10 +239,17 @@ async function main() {
     assert.deepEqual(fake.creates[0].body, {
       parent: { type: "data_source_id", data_source_id: "calendar-source" },
       properties: {
-        이름: { title: [{ text: { content: `어센텀 업무 ${TARGET}` } }] },
+        이름: { title: [
+          { type: "text", text: { content: "어센텀 업무 " } },
+          { type: "mention", mention: { type: "date", date: { start: TARGET } } },
+        ] },
         일정: { date: { start: TARGET } }, 사람: { people: [{ id: PERSON }] },
       }, template: { type: "template_id", template_id: TEMPLATE, timezone: "Asia/Seoul" },
     });
+    assert.deepEqual(fake.pages.get("created-page")!.properties.이름.title.map(({ plain_text, ...part }: Json) => part), [
+      { type: "text", text: { content: "어센텀 업무 " } },
+      { type: "mention", mention: { type: "date", date: { start: TARGET } } },
+    ], "template hydration PATCH must also preserve the target-date mention");
     const archy = fake.views.get("created-page-outside-view")!;
     assert.deepEqual(archy.filter, { or: [
       { and: [{ property: "사람", people: { contains: "archy-user" } }, { property: "done:id", date: { equals: TARGET } }] },
