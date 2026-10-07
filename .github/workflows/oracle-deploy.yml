@@ -23,6 +23,16 @@ on:
         description: Branch to deploy
         required: true
         default: main
+      enable_hamilton_calendar:
+        description: Enable Hamilton previous-day creation (requires repeat-disabled confirmation)
+        type: boolean
+        required: false
+        default: false
+      hamilton_repeat_disabled_confirmed:
+        description: Hamilton Notion repeating template has been disabled and verified
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -50,6 +60,8 @@ jobs:
         env:
           CONFIRM: ${{ inputs.confirm }}
           TARGET_REF: ${{ inputs.target_ref }}
+          HAMILTON_ENABLE: ${{ inputs.enable_hamilton_calendar }}
+          HAMILTON_REPEAT_DISABLED: ${{ inputs.hamilton_repeat_disabled_confirmed }}
         run: |
           set -euo pipefail
           if [ "${CONFIRM}" != "DEPLOY" ] && [ "${CONFIRM}" != "DISCOVER" ]; then
@@ -58,6 +70,11 @@ jobs:
           fi
           if [[ ! "${TARGET_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "Refusing: target_ref contains unsupported characters."
+            exit 1
+          fi
+
+          if [ "${HAMILTON_ENABLE}" = "true" ] && [ "${HAMILTON_REPEAT_DISABLED}" != "true" ]; then
+            echo "Refusing Hamilton activation without repeat-disabled confirmation."
             exit 1
           fi
 
@@ -105,12 +122,13 @@ jobs:
         shell: bash
         env:
           TARGET_REF: ${{ inputs.target_ref }}
+          HAMILTON_ENABLE: ${{ inputs.enable_hamilton_calendar }}
         run: |
           set -euo pipefail
           ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
-            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' bash -se" <<'REMOTE'
+            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' HAMILTON_ENABLE='${HAMILTON_ENABLE}' bash -se" <<'REMOTE'
           set -euo pipefail
 
           ENV_REL=ops/oracle/notion-cron.env
@@ -151,6 +169,23 @@ jobs:
 
           # 환경파일은 레포에 없는 운영 자산이다. 반드시 옮겨 심는다.
           cp -a "${APP}/${ENV_REL}" "${STAGE}/${ENV_REL}"
+
+          # Activation is opt-in, and validation above requires the separate
+          # Notion repeat-disabled confirmation. Existing env is otherwise preserved.
+          if [ "${HAMILTON_ENABLE}" = "true" ]; then
+            python3 - "${STAGE}/${ENV_REL}" <<'PY_ENV'
+          import pathlib, sys
+          env_path = pathlib.Path(sys.argv[1])
+          updates = {
+              "ENABLE_HAMILTON_CALENDAR_AUTO_CREATE": "true",
+              "HAMILTON_NOTION_REPEAT_DISABLED": "true",
+          }
+          lines = [line for line in env_path.read_text().splitlines()
+                   if line.partition("=")[0].strip() not in updates]
+          lines.extend(f"{key}={value}" for key, value in updates.items())
+          env_path.write_text("\n".join(lines) + "\n")
+          PY_ENV
+          fi
 
           echo "--- backing up to ${BACKUP} ---"
           mkdir -p "${BACKUP%/*}"
