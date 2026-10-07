@@ -179,6 +179,9 @@ jobs:
           updates = {
               "ENABLE_HAMILTON_CALENDAR_AUTO_CREATE": "true",
               "HAMILTON_NOTION_REPEAT_DISABLED": "true",
+              "NOTION_WORK_CALENDAR_DB_ID": "26abd55c-4778-80b1-a96c-dc8cf9f1a0e4",
+              "NOTION_HAMILTON_CALENDAR_TEMPLATE_ID": "3f2bd55c-4778-8043-9ed0-d337f8b50734",
+              "NOTION_USER_HAMILTON": "3f0d872b-594c-81a9-a34d-00024bd9314d",
           }
           lines = [line for line in env_path.read_text().splitlines()
                    if line.partition("=")[0].strip() not in updates]
@@ -198,8 +201,42 @@ jobs:
           cd "${APP}"
           compose config >/dev/null || { echo "compose config failed"; exit 1; }
 
-          echo "--- build & start (notion-cron only) ---"
-          compose up -d --build notion-cron
+          rollback() {
+            echo "Restoring ${BACKUP}"
+            find "${APP}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            cp -a "${BACKUP}/." "${APP}/"
+            cd "${APP}"
+            compose up -d --build notion-cron || true
+          }
+
+          echo "--- build (notion-cron only) ---"
+          compose build notion-cron || { rollback; exit 1; }
+
+          # Preflight in a temporary container before the enabled server starts.
+          # The service module does not start a scheduler; both flags are also
+          # explicitly off here. Dry-run does not initialize or modify SQLite.
+          if [ "${HAMILTON_ENABLE}" = "true" ]; then
+            if ! compose run --rm --no-deps -e ENABLE_SCHEDULER=false \
+              -e ENABLE_HAMILTON_CALENDAR_AUTO_CREATE=false notion-cron node -e '
+
+              const {getKstDateInfo, shiftIsoDate} = require("./dist/lib/time");
+              let targetDate = shiftIsoDate(getKstDateInfo().isoDate, 1);
+              while (![0,3,4,5,6].includes(new Date(targetDate + "T00:00:00Z").getUTCDay())) {
+                targetDate = shiftIsoDate(targetDate, 1);
+              }
+              require("./dist/src/services/hamilton-calendar-service").runHamiltonCalendar(
+                new Date(), {targetDate, dryRun: true}
+              ).then(result => console.log(JSON.stringify(result))).catch(error => {
+                console.error(error); process.exit(1);
+              });
+            '; then
+              rollback
+              exit 1
+            fi
+          fi
+
+          echo "--- start (notion-cron only) ---"
+          compose up -d notion-cron || { rollback; exit 1; }
 
           echo "--- health ---"
           ok=no
@@ -211,11 +248,8 @@ jobs:
           done
 
           if [ "${ok}" != "yes" ]; then
-            echo "!!! health failed — restoring ${BACKUP}"
-            find "${APP}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-            cp -a "${BACKUP}/." "${APP}/"
-            cd "${APP}"
-            compose up -d --build notion-cron || true
+            echo "!!! health failed"
+            rollback
             exit 1
           fi
 

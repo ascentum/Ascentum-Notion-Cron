@@ -278,7 +278,7 @@ self-hosted runner는 `notion-cron` 라벨로 이 레포에 등록되어 있어�
 
 러너는 `archy-github-runner` VM에 올린다. 그 VM은 같은 VCN 안에 있어 배포 대상 호스트의 22번이 열려 있는 두 IP 중 하나다. 등록 관례는 `~/actions-runner-<이름>` 디렉터리에 받아 `svc.sh`로 systemd 서비스를 만드는 것이다. 같은 VM에 다른 레포용 러너가 이미 여러 개 떠 있다.
 
-Hamilton 생성기를 처음 활성화할 때는 Notion 반복 해제를 확인한 후 `Oracle Deploy`의 `enable_hamilton_calendar=true`와 `hamilton_repeat_disabled_confirmed=true`를 함께 지정한다. 두 확인값은 배포 시 Oracle 환경 파일의 생성 활성화/반복 해제 확인값에 반영된다. 기존 환경은 백업되어 롤백 시 복구된다. 이후 일반 배포는 해당 값을 보존한다.
+Hamilton 생성기를 처음 활성화할 때는 Notion 반복 해제를 확인한 후 `Oracle Deploy`의 `enable_hamilton_calendar=true`와 `hamilton_repeat_disabled_confirmed=true`를 함께 지정한다. 두 확인값은 배포 시 Oracle 환경 파일의 생성 활성화/반복 해제 확인값과 확인된 캘린더·Hamilton 템플릿·사람 ID에 반영된다. 서버를 시작하기 전에 scheduler를 끈 임시 컨테이너에서 다음 근무일 dry-run을 통과해야 활성화한다. 기존 환경은 백업되어 롤백 시 복구된다. 이후 일반 배포는 해당 값을 보존한다.
 
 ### 수동 배포
 
