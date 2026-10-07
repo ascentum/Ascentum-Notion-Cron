@@ -43,6 +43,6 @@
 - 박영민과 Hamilton 조회 조건 및 기존 보정 회귀 테스트, TypeScript 빌드가 통과한다.
 - 실제 쓰기 전 dry-run으로 템플릿·대상 날짜·중복 여부를 확인한다. 실제 생성 후 속성과 필터를 재조회하여 검증한다.
 
-## 미확정 사항
+## 운영 확인 상태
 - 2026-10-07 Notion UI에서 Hamilton의 기존 수~일 오전 8시 반복을 해제하고 `Duplicate every…` 메뉴로 비활성을 확인했다. 박영민 템플릿은 수정하지 않았다.
-- 배포 환경의 신규 설정 전달과 Oracle scheduler 반영은 구현 및 배포 단계에서 확인한다.
+- 2026-10-07 Oracle 배포와 사전 dry-run을 완료했다. `/healthz`에서 전체 scheduler 및 Hamilton 생성 활성화를 확인했다.
