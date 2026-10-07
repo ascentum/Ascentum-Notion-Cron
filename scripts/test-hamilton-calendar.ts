@@ -119,7 +119,11 @@ class NotionFake {
     }
     const pageMatch = route.match(/^\/pages\/(.+)$/);
     if (pageMatch && this.pages.has(pageMatch[1])) {
-      if (method === "PATCH") this.savePage(pageMatch[1], body.properties);
+      if (method === "PATCH") {
+        const old = this.pages.get(pageMatch[1])!;
+        const patched = this.savePage(pageMatch[1], body.properties);
+        patched.properties = { ...old.properties, ...patched.properties };
+      }
       return respond(this.pages.get(pageMatch[1]));
     }
     const blockMatch = route.match(/^\/blocks\/(.+)\/children$/);
@@ -132,6 +136,14 @@ class NotionFake {
       if (id !== TEMPLATE) {
         this.onCreatedPageDiscovery?.();
         this.rootReads++;
+        if (this.hydration && this.rootReads === 2) {
+          // The asynchronous template may replace the requested title with its
+          // creation-day mention, so the service must repair it after hydration.
+          this.pages.get(id)!.properties.이름.title = [
+            { type: "text", text: { content: "어센텀 업무 " } },
+            { type: "mention", mention: { type: "date", date: { start: "2026-10-08" } } },
+          ];
+        }
         this.incomplete = this.hydration && this.rootReads === 2;
         if (this.hydration && this.rootReads === 1) return respond(list([]));
       }
@@ -260,6 +272,13 @@ async function main() {
     assert.equal((await runHamiltonCalendar(NOW, { wait: async () => {} })).status, "repaired");
     assert.equal(fake.creates.length, 1);
     assert.equal(Number(db.prepare("SELECT completed FROM calendar_page_runs").get()!.completed), 1);
+
+    const beforeRepair = fake.calls.length;
+    await runHamiltonCalendar(NOW, { wait: async () => {} });
+    assert.ok(fake.calls.slice(beforeRepair).filter((call) =>
+      call.method === "PATCH" && call.path === "/pages/created-page"
+    ).every((call) => !("이름" in call.body.properties)),
+    "repair must preserve the existing date mention display format by omitting the title");
 
     fake = reset(); fake.failViewPatch = true;
     await assert.rejects(runHamiltonCalendar(NOW, { wait: async () => {} }), /temporary patch failure/);
