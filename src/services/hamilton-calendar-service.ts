@@ -4,7 +4,6 @@ import {
   buildPropertyKeys,
   getFirstDataSourceId,
   getPageDate,
-  getPageTitle,
   listLinkedWorkViews,
   notionRequest,
   NotionApiError,
@@ -151,7 +150,21 @@ export async function runHamiltonCalendar(
       startDate: targetDate, endDate: targetDate,
     });
     if (existing.length > 1) throw new Error(`Multiple Hamilton pages exist for ${targetDate}`);
-    const title = `${process.env.NOTION_WORK_CALENDAR_TITLE_PREFIX ?? "어센텀 업무"} ${targetDate}`;
+    const titlePrefix = `${process.env.NOTION_WORK_CALENDAR_TITLE_PREFIX ?? "어센텀 업무"} `;
+    const title = `${titlePrefix}@${targetDate}`;
+    const titleRichText = [
+      { type: "text", text: { content: titlePrefix } },
+      { type: "mention", mention: { type: "date", date: { start: targetDate } } },
+    ];
+    // Public API date mentions default to absolute display. Do not rewrite an
+    // already correct mention: that would erase a relative format set in Notion.
+    const hasTargetTitle = (page: PageResponse) => {
+      const parts = page.properties?.[titleName]?.title;
+      return Array.isArray(parts) && parts.length === 2 &&
+        parts[0]?.type === "text" && parts[0]?.text?.content === titlePrefix &&
+        parts[1]?.type === "mention" && parts[1]?.mention?.type === "date" &&
+        parts[1]?.mention?.date?.start === targetDate && !parts[1]?.mention?.date?.end;
+    };
     if (dryRun) return {
       status: existing.length ? "would-repair" : "would-create", dryRun, targetDate,
       title, templateId, personId, pageId: existing[0]?.id ?? state?.pageId ?? null,
@@ -175,7 +188,7 @@ export async function runHamiltonCalendar(
           body: JSON.stringify({
             parent: { type: "data_source_id", data_source_id: calendarDataSourceId },
             properties: {
-              [titleName]: { title: [{ text: { content: title } }] },
+              [titleName]: { title: titleRichText },
               [dateName]: { date: { start: targetDate } },
               [personName]: { people: [{ id: personId }] },
             },
@@ -203,12 +216,13 @@ export async function runHamiltonCalendar(
       if (attempt === 7) throw new Error(`Hamilton template views are not ready for ${pageId}`);
       await wait(Math.min(2_000 * 2 ** attempt, 20_000));
     }
-    // Apply properties after template hydration too, to ensure @Today resolves
-    // to the intended work day instead of the day on which the page was created.
+    // Apply properties after hydration too, replacing a template title only if
+    // its date is wrong or it is not the intended native date mention.
     saveCalendarPageRun(targetDate, owner, {});
+    const hydratedPage = await notionRequest<PageResponse>(`/pages/${pageId}`);
     await notionRequest(`/pages/${pageId}`, {
       method: "PATCH", body: JSON.stringify({ properties: {
-        [titleName]: { title: [{ text: { content: title } }] },
+        ...(hasTargetTitle(hydratedPage) ? {} : { [titleName]: { title: titleRichText } }),
         [dateName]: { date: { start: targetDate } },
         [personName]: { people: [{ id: personId }] },
       } }),
@@ -238,7 +252,8 @@ export async function runHamiltonCalendar(
     }
     const verified = await notionRequest<PageResponse>(`/pages/${pageId}`);
     const people = verified.properties?.[personName]?.people;
-    if (getPageTitle(verified) !== title || getPageDate(verified, dateName) !== targetDate ||
+    // Date mention plain_text is a display label, not a stable identifier.
+    if (!hasTargetTitle(verified) || getPageDate(verified, dateName) !== targetDate ||
       !Array.isArray(people) || people.length !== 1 || people[0].id !== personId) {
       throw new Error(`Hamilton page property verification failed for ${pageId}`);
     }
