@@ -113,3 +113,16 @@ railway variable set ENABLE_SCHEDULER=false
 ```
 
 Keep Railway deployed but scheduler-disabled for one day if possible. After the Discord endpoint and scheduled jobs are stable on Oracle, remove the Railway service/subscription from the Railway dashboard.
+
+
+## Hamilton calendar activation
+
+The Oracle scheduler prepares Wednesday–Sunday pages at 13:00 Asia/Seoul on the previous Tuesday–Saturday. The job is disabled by default.
+
+1. Disable the repeating schedule on the Hamilton template (`3f2bd55c-4778-8043-9ed0-d337f8b50734`) in Notion. Keep Youngmin’s repeating template unchanged.
+2. Set `NOTION_USER_HAMILTON=3f0d872b-594c-81a9-a34d-00024bd9314d` and `NOTION_HAMILTON_CALENDAR_TEMPLATE_ID=3f2bd55c-4778-8043-9ed0-d337f8b50734` in the Oracle environment (these verified IDs are also code defaults).
+3. Run the compiled CLI in dry-run mode for the next work date: `docker exec oracle-notion-cron-1 node dist/scripts/create-hamilton-calendar.js --dry-run --target-date 2026-10-08`.
+4. The Oracle Deploy workflow can set both gates using `enable_hamilton_calendar=true` and `hamilton_repeat_disabled_confirmed=true`; it refuses activation without the confirmation, pins the verified calendar/template/person IDs, and verifies a dry-run in a temporary scheduler-disabled container before starting the enabled server. For manual deployment, after the repeating schedule is confirmed disabled, set both `ENABLE_HAMILTON_CALENDAR_AUTO_CREATE=true` and `HAMILTON_NOTION_REPEAT_DISABLED=true` in the environment and recreate only the notion-cron service with the existing full Compose file list. Verify `/healthz` reports `hamiltonCalendarEnabled: true`.
+5. Confirm the created page’s title, schedule, Hamilton person and linked-view completion dates. Template hydration is asynchronous; success is recorded only after read-back verification.
+
+The per-date creation record and lease live in the existing SQLite database. A lost POST response is recovered by querying the calendar; an uncertain result never triggers an automatic second POST. If the page is confirmed absent, stop the scheduler before resetting that date’s `calendar_page_runs.creation_requested` to `0` and clearing its lease. Do not reset a possibly successful creation. See the main README for manual-run and recovery commands.

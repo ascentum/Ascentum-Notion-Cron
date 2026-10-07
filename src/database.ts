@@ -106,6 +106,15 @@ function initializeSchema(db: DatabaseSync) {
       finished_at TEXT,
       error TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS calendar_page_runs (
+      target_date TEXT PRIMARY KEY,
+      page_id TEXT,
+      creation_requested INTEGER NOT NULL DEFAULT 0,
+      completed INTEGER NOT NULL DEFAULT 0,
+      lock_owner TEXT,
+      lock_until TEXT
+    );
   `);
 }
 
@@ -441,4 +450,63 @@ export function listJobRuns(limit = 20): JobRunRecord[] {
     .all(limit) as Array<Record<string, unknown>>;
 
   return rows.map(toJobRunRecord);
+}
+
+export interface CalendarPageRun {
+  pageId: string | null;
+  creationRequested: boolean;
+  completed: boolean;
+}
+
+// A persistent per-date lease also serializes the CLI with the scheduler.
+export function claimCalendarPageRun(
+  targetDate: string,
+  owner: string,
+  now: Date
+): CalendarPageRun | null {
+  return withImmediateTransaction(() => {
+    const db = getDatabase();
+    db.prepare("INSERT OR IGNORE INTO calendar_page_runs (target_date) VALUES (?)").run(targetDate);
+    const result = db.prepare(`
+      UPDATE calendar_page_runs SET lock_owner = ?, lock_until = ?
+      WHERE target_date = ? AND (lock_owner IS NULL OR lock_until <= ?)
+    `).run(owner, new Date(now.getTime() + 10 * 60_000).toISOString(), targetDate, now.toISOString());
+    if (result.changes !== 1) return null;
+    const row = db.prepare("SELECT * FROM calendar_page_runs WHERE target_date = ?")
+      .get(targetDate) as Record<string, unknown>;
+    return {
+      pageId: row.page_id === null ? null : String(row.page_id),
+      creationRequested: Number(row.creation_requested) === 1,
+      completed: Number(row.completed) === 1,
+    };
+  });
+}
+
+export function saveCalendarPageRun(
+  targetDate: string,
+  owner: string,
+  changes: { pageId?: string; creationRequested?: boolean; completed?: boolean }
+) {
+  const result = getDatabase().prepare(`
+    UPDATE calendar_page_runs SET
+      page_id = COALESCE(?, page_id),
+      creation_requested = COALESCE(?, creation_requested),
+      completed = COALESCE(?, completed),
+      lock_until = ?
+    WHERE target_date = ? AND lock_owner = ? AND lock_until > ?
+  `).run(
+    changes.pageId ?? null,
+    changes.creationRequested === undefined ? null : Number(changes.creationRequested),
+    changes.completed === undefined ? null : Number(changes.completed),
+    new Date(Date.now() + 10 * 60_000).toISOString(),
+    targetDate, owner, new Date().toISOString()
+  );
+  if (result.changes !== 1) throw new Error(`Calendar page lease was lost: ${targetDate}`);
+}
+
+export function releaseCalendarPageRun(targetDate: string, owner: string) {
+  getDatabase().prepare(`
+    UPDATE calendar_page_runs SET lock_owner = NULL, lock_until = NULL
+    WHERE target_date = ? AND lock_owner = ?
+  `).run(targetDate, owner);
 }

@@ -37,6 +37,7 @@ async function main() {
       service: "notion-cron",
       schedulerEnabled: config.enableScheduler,
       schedulerTickSeconds: config.schedulerTickSeconds,
+      hamiltonCalendarEnabled: config.enableHamiltonCalendarAutoCreate && config.hamiltonNotionRepeatDisabled,
       recentJobs: listJobRuns(10),
     });
   });

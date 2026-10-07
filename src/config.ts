@@ -43,6 +43,8 @@ export const config = {
     "ENABLE_MEETING_PAGE_AUTO_CREATE",
     false
   ),
+  enableHamiltonCalendarAutoCreate: optionalBoolean("ENABLE_HAMILTON_CALENDAR_AUTO_CREATE", false),
+  hamiltonNotionRepeatDisabled: optionalBoolean("HAMILTON_NOTION_REPEAT_DISABLED", false),
   discordChannelId: required("DISCORD_CHANNEL_ID"),
   autoPostDelayMinutes: optionalInteger("AUTO_POST_DELAY_MINUTES", 30),
   schedulerTickSeconds: optionalInteger("SCHEDULER_TICK_SECONDS", 60),
