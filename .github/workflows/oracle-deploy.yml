@@ -114,6 +114,33 @@ jobs:
           echo "CONTAINERS<<EOF"
           docker ps --format '{{.Names}}  {{.Status}}' 2>/dev/null
           echo "EOF"
+          # Read-only production diagnostics; redact environment values before logging.
+          LOG_FILE="$(mktemp)"
+          docker logs --timestamps --since 24h --tail 200 oracle-notion-cron-1 >"$LOG_FILE" 2>&1
+          python3 - "$APP/ops/oracle/notion-cron.env" "$LOG_FILE" <<'PY_LOG'
+          import pathlib, sys
+          log = pathlib.Path(sys.argv[2]).read_text()
+          for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+              key, separator, value = line.partition("=")
+              if separator and any(marker in key for marker in ("TOKEN", "SECRET", "KEY")):
+                  value = value.strip().strip("\"'")
+                  if value:
+                      log = log.replace(value, "[REDACTED]")
+          print("APP_LOGS<<EOF")
+          print(log)
+          print("EOF")
+          PY_LOG
+          rm -f "$LOG_FILE"
+          docker exec oracle-notion-cron-1 node -e '
+            const {DatabaseSync} = require("node:sqlite");
+            const db = new DatabaseSync(process.env.SQLITE_DB_PATH, {readOnly: true});
+            console.log("RECENT_DISPATCHES=" + JSON.stringify(db.prepare(`
+              SELECT id, person, snippet_type, date_label, status, completion_source,
+                     created_at, posted_at, last_error
+              FROM snippet_dispatches ORDER BY id DESC LIMIT 8
+            `).all()));
+            db.close();
+          '
           exit 0
           REMOTE
 
