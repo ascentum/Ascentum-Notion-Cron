@@ -23,6 +23,10 @@ on:
         description: Branch to deploy
         required: true
         default: main
+      diagnostic_date:
+        description: Optional YYYY-MM-DD for read-only Notion task verification
+        required: false
+        default: ""
       enable_hamilton_calendar:
         description: Enable Hamilton previous-day creation (requires repeat-disabled confirmation)
         type: boolean
@@ -53,6 +57,7 @@ jobs:
       API_SSH_PORT: ${{ secrets.API_SSH_PORT }}
       APP_DIR: ${{ vars.NOTION_CRON_APP_DIR || '/opt/notion-cron/app' }}
       HEALTH_URL: https://notion-cron.168.110.123.188.sslip.io/healthz
+      DIAGNOSTIC_DATE: ${{ inputs.diagnostic_date }}
 
     steps:
       - name: Validate inputs
@@ -70,6 +75,11 @@ jobs:
           fi
           if [[ ! "${TARGET_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "Refusing: target_ref contains unsupported characters."
+            exit 1
+          fi
+
+          if [ -n "${DIAGNOSTIC_DATE}" ] && [[ ! "${DIAGNOSTIC_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "Refusing: diagnostic_date must be YYYY-MM-DD."
             exit 1
           fi
 
@@ -99,7 +109,7 @@ jobs:
           ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
-            "APP='${APP_DIR}' bash -se" <<'REMOTE'
+            "APP='${APP_DIR}' DIAGNOSTIC_DATE='${DIAGNOSTIC_DATE}' bash -se" <<'REMOTE'
           # ssh 가 bash -se 로 돌리므로 errexit 가 켜져 있다. 조회는 죽지 않게 둔다.
           set +e
           echo "HOSTNAME=$(hostname)"
@@ -141,6 +151,22 @@ jobs:
             `).all()));
             db.close();
           '
+          if [ -n "$DIAGNOSTIC_DATE" ]; then
+            docker exec -e DIAGNOSTIC_DATE="$DIAGNOSTIC_DATE" oracle-notion-cron-1 node -e '
+              const {getWorkPages, getTaskTitle, buildFormattedTasks} = require("./dist/lib/notion");
+              (async () => {
+                const date = process.env.DIAGNOSTIC_DATE;
+                const pages = await getWorkPages(date, date);
+                const tasks = await buildFormattedTasks(pages, {youngmin: process.env.NOTION_USER_YOUNGMIN});
+                console.log("NOTION_TASK_CHECK=" + JSON.stringify({
+                  date, completedPages: pages.length,
+                  resolvedTitles: pages.filter(page => getTaskTitle(page).trim()).length,
+                  youngminTaskLines: tasks.youngmin.length,
+                  placeholderLines: tasks.youngmin.filter(line => line.includes("(상위 업무)")).length
+                }));
+              })().catch(error => { console.error(error.code, error.message); process.exit(1); });
+            ' || exit 1
+          fi
           exit 0
           REMOTE
 

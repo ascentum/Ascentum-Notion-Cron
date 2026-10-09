@@ -260,8 +260,11 @@ export function getPageDate(page: any): string | null {
 
 // 업무 아이템의 제목(이름) 반환
 export function getTaskTitle(page: any): string {
-  const titleProp = page.properties?.["이름"];
-  if (!titleProp || titleProp.type !== "title") return "";
+  // Notion allows renaming the title column, including setting its name to "".
+  const titleProp = Object.values(page.properties ?? {}).find(
+    (property: any) => property.type === "title"
+  ) as any;
+  if (!titleProp) return "";
   return titleProp.title.map((rt: any) => rt.plain_text).join("");
 }
 
