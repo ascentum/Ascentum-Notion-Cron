@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {
   formatTaskTreeByUser,
+  getTaskTitle,
+  buildFormattedTasks,
+  notion,
   mapWithConcurrencyLimit,
   type TaskInfo,
 } from "../lib/notion";
@@ -234,7 +237,43 @@ async function verifyConcurrencyLimit() {
   assert.equal(maxActive, 2);
 }
 
+// A renamed or blank Notion title property must survive the complete snippet path.
+async function verifyRenamedTaskTitles() {
+  const originalQuery = notion.databases.query;
+  (notion.databases as any).query = async () => ({ results: [], has_more: false });
+  try {
+    for (const propertyName of ["", "업무명", "이름"]) {
+      const page = {
+        id: `renamed-title-${propertyName}`,
+        properties: {
+          [propertyName]: {
+            id: "title", type: "title",
+            title: [{ plain_text: "Appstoreconnect " }, { plain_text: "이슈 해결" }],
+          },
+          카테고리: { type: "select", select: { name: "Archy" } },
+          PIC: { type: "people", people: [{ id: USER_IDS.youngmin }] },
+          완료: { type: "checkbox", checkbox: true },
+          "상위 항목": { type: "relation", relation: [] },
+        },
+      };
+      assert.equal(getTaskTitle(page), "Appstoreconnect 이슈 해결");
+      const formatted = await buildFormattedTasks([page], USER_IDS);
+      assert.deepEqual(formatted.youngmin, ["[Archy] Appstoreconnect 이슈 해결"]);
+      assert.deepEqual(formatted.partner, []);
+    }
+    assert.equal(getTaskTitle({ properties: {} }), "");
+    assert.equal(getTaskTitle({}), "");
+    assert.equal(getTaskTitle({ properties: {
+      이름: { type: "rich_text", rich_text: [{ plain_text: "Not a title" }] },
+      업무: { type: "title", title: [{ plain_text: "실제 업무" }] },
+    }}), "실제 업무");
+  } finally {
+    notion.databases.query = originalQuery;
+  }
+}
+
 async function main() {
+  await verifyRenamedTaskTitles();
   await verifyHierarchyFormatting();
   await verifyCompletedExpansionRules();
   await verifyCycleSafety();
