@@ -46,11 +46,11 @@ function validateTargetDate(targetDate: string) {
 type LinkedView = ViewResponse & { childDatabaseId: string };
 
 // View names alone cannot prove that the asynchronous template has applied its
-// filters. Compare the whole blueprint after replacing only dynamic dates.
-function normalizedView(view: LinkedView, keys: Set<string>, targetDate: string) {
+// filters. Compare the top table blueprint with its completion date normalized.
+function normalizedView(view: LinkedView, keys: Set<string>, targetDate: string, datePropertyId: string) {
   return replaceLinkedViewDateFilters(
     { filter: view.filter ?? null, quick_filters: view.quick_filters ?? null },
-    { datePropertyKeys: keys, targetDate }
+    { datePropertyKeys: keys, targetDate, forceDateFilters: true, ensureDatePropertyKey: datePropertyId }
   ).value;
 }
 
@@ -64,13 +64,13 @@ function canonical(value: unknown): string {
 }
 
 function hasTemplateViews(
-  views: LinkedView[], blueprint: LinkedView[], keys: Set<string>, targetDate: string
+  views: LinkedView[], blueprint: LinkedView[], keys: Set<string>, targetDate: string, datePropertyId: string
 ): boolean {
   const remaining = [...views];
   for (const expected of blueprint) {
     const index = remaining.findIndex((view) => view.name === expected.name &&
-      canonical(normalizedView(view, keys, targetDate)) ===
-      canonical(normalizedView(expected, keys, targetDate)));
+      canonical(normalizedView(view, keys, targetDate, datePropertyId)) ===
+      canonical(normalizedView(expected, keys, targetDate, datePropertyId)));
     if (index === -1) return false;
     remaining.splice(index, 1);
   }
@@ -136,13 +136,10 @@ export async function runHamiltonCalendar(
       !Array.isArray(templatePeople) || templatePeople.length !== 1 || templatePeople[0].id !== personId) {
       throw new Error("Hamilton template must belong to the calendar and have only Hamilton as its person");
     }
-    const viewOptions = { maxBlockDepth: 5, workDataSourceId, scope: "all" as const };
+    const viewOptions = { maxBlockDepth: 5, workDataSourceId, scope: "today-work" as const };
     const blueprint = await listLinkedWorkViews(templateId, viewOptions);
-    if (blueprint.length === 0 || !blueprint.some((view) => replaceLinkedViewDateFilters(
-      { filter: view.filter ?? null, quick_filters: view.quick_filters ?? null },
-      { datePropertyKeys: dateKeys, targetDate }
-    ).changed)) {
-      throw new Error("Hamilton template must have linked work views including a today completion-date condition");
+    if (blueprint.length !== 1) {
+      throw new Error("Hamilton template must have one top 오늘의 업무 table");
     }
     const existing = await queryCalendarPages({
       calendarDataSourceId, calendarDatePropertyName: dateName,
@@ -212,7 +209,7 @@ export async function runHamiltonCalendar(
     for (let attempt = 0; attempt < 8; attempt++) {
       saveCalendarPageRun(targetDate, owner, {});
       views = await listLinkedWorkViews(pageId, viewOptions);
-      if (hasTemplateViews(views, blueprint, dateKeys, targetDate)) break;
+      if (hasTemplateViews(views, blueprint, dateKeys, targetDate, completionId)) break;
       if (attempt === 7) throw new Error(`Hamilton template views are not ready for ${pageId}`);
       await wait(Math.min(2_000 * 2 ** attempt, 20_000));
     }
@@ -231,7 +228,7 @@ export async function runHamiltonCalendar(
     for (const view of views) {
       const replacement = replaceLinkedViewDateFilters(
         { filter: view.filter ?? null, quick_filters: view.quick_filters ?? null },
-        { datePropertyKeys: dateKeys, targetDate }
+        { datePropertyKeys: dateKeys, targetDate, forceDateFilters: true, ensureDatePropertyKey: completionId }
       );
       if (!replacement.changed) continue;
       saveCalendarPageRun(targetDate, owner, {});
@@ -243,10 +240,10 @@ export async function runHamiltonCalendar(
       viewsUpdated++;
     }
     const verifiedViews = await listLinkedWorkViews(pageId, viewOptions);
-    if (!hasTemplateViews(verifiedViews, blueprint, dateKeys, targetDate) ||
+    if (!hasTemplateViews(verifiedViews, blueprint, dateKeys, targetDate, completionId) ||
       verifiedViews.some((view) => replaceLinkedViewDateFilters(
         { filter: view.filter ?? null, quick_filters: view.quick_filters ?? null },
-        { datePropertyKeys: dateKeys, targetDate }
+        { datePropertyKeys: dateKeys, targetDate, forceDateFilters: true, ensureDatePropertyKey: completionId }
       ).changed)) {
       throw new Error(`Hamilton page filter verification failed for ${pageId}`);
     }

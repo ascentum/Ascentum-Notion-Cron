@@ -35,7 +35,7 @@ class NotionFake {
 
   seedViews(pageId: string) {
     this.views.set(`${pageId}-inside-view`, {
-      id: `${pageId}-inside-view`, name: "Hamilton", data_source_id: "work-source",
+      id: `${pageId}-inside-view`, name: "오늘의 업무", type: "table", data_source_id: "work-source",
       filter: { and: [
         { property: "사람", people: { contains: PERSON } },
         { property: "완료일", date: { equals: "today" } },
@@ -43,7 +43,7 @@ class NotionFake {
       quick_filters: { "done%3Aid": { date: { on_or_after: "today" } } },
     });
     this.views.set(`${pageId}-outside-view`, {
-      id: `${pageId}-outside-view`, name: "Archy", data_source_id: "work-source",
+      id: `${pageId}-outside-view`, name: "Archy 업무", type: "table", data_source_id: "work-source",
       filter: { or: [
         { and: [
           { property: "사람", people: { contains: "archy-user" } },
@@ -241,12 +241,36 @@ async function main() {
     await assert.rejects(runHamiltonCalendar(NOW), /Multiple Hamilton pages/);
     assert.equal(fake.creates.length, 0);
 
+    fake = reset();
+    const templateToday = fake.views.get(`${TEMPLATE}-inside-view`)!;
+    templateToday.filter = null;
+    templateToday.quick_filters = {
+      PIC: { people: { contains: PERSON } }, category: { select: { equals: "Archy" } },
+    };
+    const seedViews = fake.seedViews.bind(fake);
+    fake.seedViews = (pageId) => {
+      seedViews(pageId);
+      Object.assign(fake.views.get(`${pageId}-inside-view`)!, {
+        filter: clone(templateToday.filter), quick_filters: clone(templateToday.quick_filters),
+      });
+    };
+    const outsideBefore = clone(fake.views.get(`${TEMPLATE}-outside-view`)!.filter);
+    const missingDateCreated = await runHamiltonCalendar(NOW, { wait: async () => {} });
+    assert.equal(missingDateCreated.viewsUpdated, 1);
+    assert.deepEqual(fake.views.get("created-page-inside-view")!.quick_filters, {
+      PIC: { people: { contains: PERSON } }, category: { select: { equals: "Archy" } },
+      "done:id": { date: { equals: TARGET } },
+    });
+    assert.deepEqual(fake.views.get("created-page-outside-view")!.filter, outsideBefore);
+    assert.ok(fake.calls.filter(call => call.method === "PATCH" && call.path.startsWith("/views/"))
+      .every(call => call.path === "/views/created-page-inside-view"));
+
     fake = reset(); fake.hydration = true;
     const waits: number[] = [];
     const created = await runHamiltonCalendar(NOW, { wait: async (ms) => { waits.push(ms); } });
     assert.equal(created.status, "created");
     assert.deepEqual(waits, [2000, 4000], "empty and named-but-incomplete views must both wait");
-    assert.equal(created.viewsUpdated, 2);
+    assert.equal(created.viewsUpdated, 1);
     assert.equal(fake.creates.length, 1);
     assert.deepEqual(fake.creates[0].body, {
       parent: { type: "data_source_id", data_source_id: "calendar-source" },
@@ -264,7 +288,7 @@ async function main() {
     ], "template hydration PATCH must also preserve the target-date mention");
     const archy = fake.views.get("created-page-outside-view")!;
     assert.deepEqual(archy.filter, { or: [
-      { and: [{ property: "사람", people: { contains: "archy-user" } }, { property: "done:id", date: { equals: TARGET } }] },
+      { and: [{ property: "사람", people: { contains: "archy-user" } }, { property: "done:id", date: { equals: "today" } }] },
       { property: "완료일", date: { equals: "2026-01-01" } },
       { property: "다른날짜", date: { equals: "today" } },
     ] });
