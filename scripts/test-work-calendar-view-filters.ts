@@ -198,6 +198,36 @@ assert.deepEqual(unrelatedFilters.value.filter, { and: [
 assert.deepEqual(unrelatedFilters.value.quick_filters, { other: { date: { equals: "today" } } });
 assert.deepEqual(nestedFilter.or[1].and?.[1], { property: "HDdB", date: { equals: "today" } });
 
+// Hamilton's template has no completion-date filter on the top table.
+const missingDateConfig = {
+  filter: null,
+  quick_filters: {
+    FMmF: { people: { contains: "hamilton" } },
+    BYTF: { select: { equals: "Archy" } },
+  },
+};
+const addedDate = replaceLinkedViewDateFilters(missingDateConfig, {
+  datePropertyKeys, targetDate: "2026-10-10", ensureDatePropertyKey: "HDdB",
+});
+assert.deepEqual(addedDate.value, {
+  filter: null,
+  quick_filters: {
+    FMmF: { people: { contains: "hamilton" } },
+    BYTF: { select: { equals: "Archy" } },
+    HDdB: { date: { equals: "2026-10-10" } },
+  },
+});
+assert.deepEqual(addedDate.changedFields, ["quick_filters"]);
+assert.equal(replaceLinkedViewDateFilters(addedDate.value, {
+  datePropertyKeys, targetDate: "2026-10-10", ensureDatePropertyKey: "HDdB",
+}).changed, false);
+assert.deepEqual(missingDateConfig.quick_filters, {
+  FMmF: { people: { contains: "hamilton" } }, BYTF: { select: { equals: "Archy" } },
+});
+assert.equal(replaceLinkedViewDateFilters(missingDateConfig, {
+  datePropertyKeys, targetDate: "2026-10-10",
+}).changed, false, "generic views must not acquire a new date condition");
+
 async function checkTraversalAndPagination() {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.NOTION_API_KEY;
@@ -228,6 +258,8 @@ async function checkTraversalAndPagination() {
       const id = path.slice("/views/".length);
       body = {
         id,
+        name: id === "inside" || id === "outside" ? "오늘의 업무" : "Other view",
+        type: "table",
         data_source_id: id === "unrelated" ? "other-source" : "work-source",
         filter: { and: [
           { property: "HDdB", date: { equals: "today" } },
@@ -254,13 +286,14 @@ async function checkTraversalAndPagination() {
     assert.deepEqual((await listLinkedWorkViews("page", options)).map((view) => view.childDatabaseId), ["inside", "deep"]);
     assert.deepEqual((await listLinkedWorkViews("page", { ...options, maxBlockDepth: 0 })).map((view) => view.childDatabaseId), ["inside"]);
     assert.deepEqual((await listLinkedWorkViews("page", { ...options, maxBlockDepth: 2, scope: "all" })).map((view) => view.childDatabaseId), ["outside", "inside", "deep", "second"]);
+    assert.deepEqual((await listLinkedWorkViews("page", { ...options, scope: "today-work" })).map(view => view.childDatabaseId), ["inside"]);
     const result = await updateLinkedViewsForPage({
       pageId: "page", pageTitle: "어센텀 업무", pageDate: "2026-05-15",
       maxBlockDepth: 1, workDataSourceId: "work-source", datePropertyKeys,
       forceDateFilters: false, dryRun: true,
     });
-    assert.equal(result.viewsChecked, 2);
-    assert.equal(result.viewsUpdated, 2);
+    assert.equal(result.viewsChecked, 1);
+    assert.equal(result.viewsUpdated, 1);
     assert.equal(requests.some((request) => request.method === "PATCH"), false);
     const liveResult = await updateLinkedViewsForPage({
       pageId: "page", pageTitle: "어센텀 업무", pageDate: "2026-05-15",
@@ -287,7 +320,7 @@ async function checkTraversalAndPagination() {
     }]);
     assert.deepEqual(liveResult.updates, [{
       pageId: "page", pageTitle: "어센텀 업무", pageDate: "2026-05-15",
-      childDatabaseId: "inside", viewId: "inside", viewName: "(unnamed view)",
+      childDatabaseId: "inside", viewId: "inside", viewName: "오늘의 업무",
       changedFields: ["filter", "quick_filters"],
     }]);
     const pages = await queryCalendarPages({

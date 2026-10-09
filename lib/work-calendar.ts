@@ -33,6 +33,7 @@ export interface ReplaceLinkedViewDateFiltersOptions {
   datePropertyKeys: Set<string>;
   targetDate: string;
   forceDateFilters?: boolean;
+  ensureDatePropertyKey?: string;
 }
 
 interface DatabaseResponse {
@@ -316,12 +317,30 @@ function replaceQuickFilters(
     : { value: quickFilters, changed: false };
 }
 
+function hasDateCondition(node: unknown, propertyKeys: Set<string>): boolean {
+  if (Array.isArray(node)) return node.some(item => hasDateCondition(item, propertyKeys));
+  if (!isRecord(node)) return false;
+  if (typeof node.property === "string" && propertyKeys.has(node.property) && isRecord(node.date)) return true;
+  return Object.values(node).some(value => hasDateCondition(value, propertyKeys));
+}
+
 export function replaceLinkedViewDateFilters(
   config: LinkedViewFilterConfig,
   options: ReplaceLinkedViewDateFiltersOptions
 ): Replacement<LinkedViewFilterConfig> & { changedFields: string[] } {
   const filterReplacement = replaceFilterNode(config.filter, options);
-  const quickFilterReplacement = replaceQuickFilters(config.quick_filters, options);
+  let quickFilterReplacement = replaceQuickFilters(config.quick_filters, options);
+  const hasQuickDate = isRecord(config.quick_filters) && Object.entries(config.quick_filters)
+    .some(([key, value]) => options.datePropertyKeys.has(key) && isRecord(value) && isRecord(value.date));
+  if (options.ensureDatePropertyKey && !hasQuickDate && !hasDateCondition(config.filter, options.datePropertyKeys)) {
+    quickFilterReplacement = {
+      value: {
+        ...(isRecord(quickFilterReplacement.value) ? quickFilterReplacement.value : {}),
+        [options.ensureDatePropertyKey]: { date: { equals: options.targetDate } },
+      },
+      changed: true,
+    };
+  }
   const changedFields = [
     ...(filterReplacement.changed ? ["filter"] : []),
     ...(quickFilterReplacement.changed ? ["quick_filters"] : []),
@@ -515,7 +534,7 @@ export async function listLinkedWorkViews(
   options: {
     maxBlockDepth: number;
     workDataSourceId: string;
-    scope: "first-callout" | "all";
+    scope: "first-callout" | "all" | "today-work";
   }
 ): Promise<Array<ViewResponse & { childDatabaseId: string }>> {
   const childDatabases = options.scope === "all"
@@ -530,6 +549,11 @@ export async function listLinkedWorkViews(
       }
     }
   }
+  if (options.scope === "today-work") {
+    const todayViews = views.filter(view => view.name === "오늘의 업무" && view.type === "table");
+    if (todayViews.length > 1) throw new Error(`Multiple top 오늘의 업무 tables found on ${pageId}`);
+    return todayViews;
+  }
   return views;
 }
 
@@ -542,13 +566,17 @@ export async function updateLinkedViewsForPage(input: {
   datePropertyKeys: Set<string>;
   forceDateFilters: boolean;
   dryRun: boolean;
-  scope?: "first-callout" | "all";
+  scope?: "first-callout" | "all" | "today-work";
+  ensureDatePropertyKey?: string;
 }): Promise<{ viewsChecked: number; viewsUpdated: number; updates: ViewUpdateSummary[] }> {
   const views = await listLinkedWorkViews(input.pageId, {
     maxBlockDepth: input.maxBlockDepth,
     workDataSourceId: input.workDataSourceId,
-    scope: input.scope ?? "first-callout",
+    scope: input.scope ?? "today-work",
   });
+  if ((input.scope ?? "today-work") === "today-work" && views.length !== 1) {
+    throw new Error(`Top 오늘의 업무 table not found on ${input.pageId}`);
+  }
   const updates: ViewUpdateSummary[] = [];
   for (const view of views) {
     const replacement = replaceLinkedViewDateFilters(
@@ -557,6 +585,7 @@ export async function updateLinkedViewsForPage(input: {
         datePropertyKeys: input.datePropertyKeys,
         targetDate: input.pageDate,
         forceDateFilters: input.forceDateFilters,
+        ensureDatePropertyKey: input.ensureDatePropertyKey,
       }
     );
     if (!replacement.changed) continue;
@@ -680,6 +709,7 @@ export async function runWorkCalendarFilterFix() {
       datePropertyKeys,
       forceDateFilters,
       dryRun,
+      ensureDatePropertyKey: linkedViewDatePropertyId,
     });
 
     viewsChecked += result.viewsChecked;
