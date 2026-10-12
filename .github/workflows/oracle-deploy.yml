@@ -144,6 +144,31 @@ jobs:
           docker exec oracle-notion-cron-1 node -e '
             const {DatabaseSync} = require("node:sqlite");
             const db = new DatabaseSync(process.env.SQLITE_DB_PATH, {readOnly: true});
+            console.log("WORK_HOURS_RUNS=" + JSON.stringify(db.prepare(`
+              SELECT scheduled_for, status, COUNT(*) AS attempts,
+                     MIN(started_at) AS first_attempt, MAX(started_at) AS last_attempt, error
+              FROM job_runs WHERE job_name = ? GROUP BY scheduled_for, status, error
+              ORDER BY scheduled_for DESC LIMIT 8
+            `).all("scheduled-work-hours-report")));
+            console.log("WORK_HOURS_STATE=" + JSON.stringify(db.prepare(`
+              SELECT * FROM scheduler_state WHERE key = ?
+            `).get("last_work_hours_report_trigger_date")));
+            db.close();
+            const {config} = require("./dist/src/config");
+            const headers = {Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`};
+            (async () => {
+              for (const route of ["/users/@me", `/channels/${config.workHours.channelId}`, "/users/@me/guilds"]) {
+                const response = await fetch(`https://discord.com/api/v10${route}`, {headers});
+                const data = await response.json();
+                console.log("DISCORD_ACCESS=" + JSON.stringify({route, status: response.status,
+                  data: Array.isArray(data) ? data.map(({id,name}) => ({id,name})) :
+                    Object.fromEntries(["id","username","name","guild_id","parent_id","permission_overwrites","message","code"].filter(k => k in data).map(k => [k,data[k]]))}));
+              }
+            })().catch(error => {console.error(error.message); process.exit(1);});
+          '
+          docker exec oracle-notion-cron-1 node -e '
+            const {DatabaseSync} = require("node:sqlite");
+            const db = new DatabaseSync(process.env.SQLITE_DB_PATH, {readOnly: true});
             console.log("RECENT_DISPATCHES=" + JSON.stringify(db.prepare(`
               SELECT id, person, snippet_type, date_label, status, completion_source,
                      created_at, posted_at, last_error
