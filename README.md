@@ -89,7 +89,7 @@ docker exec oracle-notion-cron-1 node dist/scripts/create-hamilton-calendar.js -
 - 마지막 한 줄 멘트는 OpenAI가 매주 생성하고, 실패하면 성과 구간별 대체 멘트로 폴백한다.
 - 결과는 Discord mgmt 채널(`1483333112686579774`)에 일반 텍스트로 전송된다.
 - `Missing Access`(50001)가 발생하면 mgmt 채널의 비공개 권한에서 `Ascentum Agent`에 `채널 보기`가 허용되어 있는지 확인한다. 봇의 서버 역할에 메시지 전송 권한이 있어도 채널 보기 거부는 별도로 적용된다.
-- 누락분 복구는 Oracle Deploy workflow의 `confirm=DISCOVER`, `work_hours_recovery_date=예약된 월요일 날짜`로 실행한다. 해당 날짜에 실패 기록만 있을 때 한 번 전송하고 성공 기록과 scheduler 상태를 갱신한다. 월요일 당일은 scheduler와의 충돌을 피하기 위해 복구를 거부한다. 실행 중 기록이 남으면 Discord의 실제 전송 여부를 먼저 확인하며, 성공 여부가 불확실한 상태에서 다시 보내지 않는다.
+- 누락분 복구는 Oracle Deploy workflow의 `confirm=RECOVER`, `work_hours_recovery_date=예약된 월요일 날짜`로 실행한다. `DISCOVER`는 조회만 수행하며, 복구 날짜가 지정되면 거부한다. 해당 날짜에 실패 기록만 있을 때 한 번 전송하고 성공 기록과 scheduler 상태를 갱신한다. 월요일 당일은 scheduler와의 충돌을 피하기 위해 복구를 거부한다. 실행 중 기록이 남으면 Discord의 실제 전송 여부를 먼저 확인하며, 성공 여부가 불확실한 상태에서 다시 보내지 않는다.
 
 ## 환경변수
 
