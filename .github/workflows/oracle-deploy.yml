@@ -27,6 +27,10 @@ on:
         description: Optional YYYY-MM-DD for read-only Notion task verification
         required: false
         default: ""
+      work_hours_recovery_date:
+        description: Optional past Monday YYYY-MM-DD to resend a failed work-hours report
+        required: false
+        default: ""
       enable_hamilton_calendar:
         description: Enable Hamilton previous-day creation (requires repeat-disabled confirmation)
         type: boolean
@@ -58,6 +62,7 @@ jobs:
       APP_DIR: ${{ vars.NOTION_CRON_APP_DIR || '/opt/notion-cron/app' }}
       HEALTH_URL: https://notion-cron.168.110.123.188.sslip.io/healthz
       DIAGNOSTIC_DATE: ${{ inputs.diagnostic_date }}
+      WORK_HOURS_RECOVERY_DATE: ${{ inputs.work_hours_recovery_date }}
 
     steps:
       - name: Validate inputs
@@ -80,6 +85,11 @@ jobs:
 
           if [ -n "${DIAGNOSTIC_DATE}" ] && [[ ! "${DIAGNOSTIC_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
             echo "Refusing: diagnostic_date must be YYYY-MM-DD."
+            exit 1
+          fi
+
+          if [ -n "${WORK_HOURS_RECOVERY_DATE}" ] && [[ ! "${WORK_HOURS_RECOVERY_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "Refusing: work_hours_recovery_date must be YYYY-MM-DD."
             exit 1
           fi
 
@@ -198,6 +208,51 @@ jobs:
           fi
           exit 0
           REMOTE
+
+      - name: Recover failed work-hours report
+        if: ${{ inputs.work_hours_recovery_date != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
+            "docker exec -e RECOVERY_DATE='${WORK_HOURS_RECOVERY_DATE}' -i oracle-notion-cron-1 node" <<'NODE'
+          const {getKstDateInfo} = require("./dist/lib/time");
+          const {initializeDatabase, createJobRun, finishJobRun, getSchedulerState, setSchedulerState, closeDatabase} = require("./dist/src/database");
+          const {runWorkHoursReport} = require("./dist/src/services/work-hours-service");
+          const {DatabaseSync} = require("node:sqlite");
+          (async () => {
+            const date = process.env.RECOVERY_DATE;
+            const now = new Date();
+            const today = getKstDateInfo(now);
+            const scheduled = new Date(`${date}T00:00:00+09:00`);
+            if (getKstDateInfo(scheduled).isoDate !== date || getKstDateInfo(scheduled).weekday !== 1 ||
+                date >= today.isoDate || today.weekday === 1) {
+              throw new Error("Recovery requires a past Monday and must run outside Monday to avoid scheduler races");
+            }
+            const db = new DatabaseSync(process.env.SQLITE_DB_PATH, {readOnly:true});
+            const runs = db.prepare("SELECT status FROM job_runs WHERE job_name = ? AND scheduled_for = ?")
+              .all("scheduled-work-hours-report", date);
+            db.close();
+            if (!runs.some(run => run.status === "failed") || runs.some(run => run.status !== "failed")) {
+              throw new Error("Recovery requires only failed attempts; successful or uncertain runs must be checked manually");
+            }
+            initializeDatabase();
+            const id = createJobRun("scheduled-work-hours-report", date, now.toISOString());
+            try {
+              const result = await runWorkHoursReport(scheduled);
+              finishJobRun(id, "success", new Date().toISOString());
+              const key = "last_work_hours_report_trigger_date";
+              if ((getSchedulerState(key) ?? "") < date) setSchedulerState(key, date, new Date().toISOString());
+              console.log("WORK_HOURS_RECOVERED=" + JSON.stringify(result));
+            } catch (error) {
+              // Leave the run uncertain: a lost Discord response must not allow an automatic second send.
+              console.error("Recovery failed; inspect Discord before retrying:", error.message);
+              throw error;
+            } finally { closeDatabase(); }
+          })().catch(error => { console.error(error.message); process.exit(1); });
+          NODE
 
       - name: Deploy
         if: ${{ inputs.confirm == 'DEPLOY' }}
