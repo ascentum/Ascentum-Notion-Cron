@@ -245,7 +245,8 @@ jobs:
               finishJobRun(id, "success", new Date().toISOString());
               const key = "last_work_hours_report_trigger_date";
               if ((getSchedulerState(key) ?? "") < date) setSchedulerState(key, date, new Date().toISOString());
-              console.log("WORK_HOURS_RECOVERED=" + JSON.stringify(result));
+              console.log("WORK_HOURS_RECOVERED=" + JSON.stringify({date, sent: result.sent,
+                weekStart: result.weekStart, weekEnd: result.weekEnd, messageId: result.messageId}));
             } catch (error) {
               // Leave the run uncertain: a lost Discord response must not allow an automatic second send.
               console.error("Recovery failed; inspect Discord before retrying:", error.message);
