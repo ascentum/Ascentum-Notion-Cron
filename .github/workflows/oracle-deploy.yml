@@ -157,12 +157,16 @@ jobs:
             const {config} = require("./dist/src/config");
             const headers = {Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`};
             (async () => {
-              for (const route of ["/users/@me", `/channels/${config.workHours.channelId}`, "/users/@me/guilds"]) {
+              for (const route of ["/users/@me", `/channels/${config.workHours.channelId}`, "/users/@me/guilds",
+                "/guilds/1207240059301011456/roles", "/guilds/1207240059301011456/members/1487056053807087626",
+                "/guilds/1207240059301011456/channels"]) {
                 const response = await fetch(`https://discord.com/api/v10${route}`, {headers});
                 const data = await response.json();
                 console.log("DISCORD_ACCESS=" + JSON.stringify({route, status: response.status,
-                  data: Array.isArray(data) ? data.map(({id,name}) => ({id,name})) :
-                    Object.fromEntries(["id","username","name","guild_id","parent_id","permission_overwrites","message","code"].filter(k => k in data).map(k => [k,data[k]]))}));
+                  data: Array.isArray(data) ? data.filter(item => !route.endsWith("/channels") ||
+                    item.id === config.workHours.channelId || item.type === 4).map(({id,name,permissions,parent_id,permission_overwrites}) =>
+                    ({id,name,permissions,parent_id,permission_overwrites})) :
+                    Object.fromEntries(["id","username","name","guild_id","parent_id","permission_overwrites","roles","message","code"].filter(k => k in data).map(k => [k,data[k]]))}));
               }
             })().catch(error => {console.error(error.message); process.exit(1);});
           '
