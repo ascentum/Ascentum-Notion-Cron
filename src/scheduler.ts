@@ -11,11 +11,13 @@ import { sweepDueDispatches } from "./services/dispatch-service";
 import { runWeeklyReport } from "./services/weekly-report-service";
 import { runWorkHoursReport } from "./services/work-hours-service";
 import { getHamiltonCalendarSchedule, runHamiltonCalendar } from "./services/hamilton-calendar-service";
+import { getDailyReflectionSchedule, runDailyReflection } from "./services/daily-reflection-service";
 
 const DAILY_STATE_KEY = "last_daily_send_trigger_date";
 const WEEKLY_STATE_KEY = "last_weekly_report_trigger_date";
 const WORK_HOURS_STATE_KEY = "last_work_hours_report_trigger_date";
 const HAMILTON_CALENDAR_STATE_KEY = "last_hamilton_calendar_trigger_date";
+const REFLECTION_STATE_KEY = "last_daily_reflection_trigger_date";
 
 function bootstrapSchedulerState(now: Date) {
   const { isoDate } = getKstDateInfo(now);
@@ -63,6 +65,26 @@ export function startScheduler(nowProvider: () => Date = () => new Date()) {
     running = true;
 
     try {
+      // Independent from snippet generation/posting: failed jobs must not block
+      // the 9am archive, and an archive error must not stop existing jobs.
+      const reflectionNow = nowProvider();
+      const reflectionSchedule = getDailyReflectionSchedule(reflectionNow);
+      if (config.enableDailyReflectionSync && reflectionSchedule.due &&
+          getSchedulerState(REFLECTION_STATE_KEY) !== reflectionSchedule.triggerDate) {
+        try {
+          await runTrackedJob("scheduled-daily-reflection", reflectionSchedule.targetDate, async () => {
+            const result = await runDailyReflection(reflectionNow);
+            if (result.status === "not-due" || result.status === "would-create") {
+              throw new Error(`Daily reflection did not complete: ${result.status}`);
+            }
+            setSchedulerState(REFLECTION_STATE_KEY, reflectionSchedule.triggerDate, new Date().toISOString());
+            console.log("[daily-reflection]", JSON.stringify(result));
+            return result;
+          });
+        } catch (error) {
+          console.error("[scheduler] daily reflection failed:", error);
+        }
+      }
       // This job has its own error boundary: a Discord/OpenAI failure must not
       // prevent tomorrow's calendar from being prepared (and vice versa).
       const calendarNow = nowProvider();

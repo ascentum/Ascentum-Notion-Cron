@@ -240,6 +240,29 @@ export function listDuePendingDispatches(
   return rows.map(toDispatchRecord);
 }
 
+// Short labels carry no year. Bound creation by the target day and the current
+// run so last year's identically labelled dispatch cannot become today's source.
+export function listEditedDailyReflections(targetDate: string, nowIso: string): DispatchRecord[] {
+  const [, month, day] = targetDate.split("-");
+  const rows = getDatabase().prepare(`
+    SELECT * FROM snippet_dispatches
+    WHERE person = 'youngmin' AND snippet_type = 'daily'
+      AND status = 'posted' AND completion_source = 'manual-edit'
+      AND date_label = ?
+      AND datetime(created_at) >= datetime(?) AND datetime(created_at) <= datetime(?)
+      AND datetime(posted_at) <= datetime(?)
+    ORDER BY id ASC
+  `).all(`${Number(month)}/${Number(day)}`, `${targetDate}T00:00:00+09:00`, nowIso, nowIso) as Array<Record<string, unknown>>;
+  return rows.map(toDispatchRecord);
+}
+
+export function claimReflectionCreation(key: string, nowIso: string): boolean {
+  return getDatabase().prepare(`
+    INSERT OR IGNORE INTO scheduler_state (key, value, updated_at)
+    VALUES (?, 'creation-requested', ?)
+  `).run(key, nowIso).changes === 1;
+}
+
 export function claimPendingDispatchByMessageId(
   messageId: string,
   nowIso: string

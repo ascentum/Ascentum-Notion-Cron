@@ -38,6 +38,8 @@ async function main() {
       schedulerEnabled: config.enableScheduler,
       schedulerTickSeconds: config.schedulerTickSeconds,
       hamiltonCalendarEnabled: config.enableHamiltonCalendarAutoCreate && config.hamiltonNotionRepeatDisabled,
+      dailyReflectionEnabled: config.enableDailyReflectionSync,
+      dailyReflectionSchedule: "09:00 Asia/Seoul (previous day)",
       recentJobs: listJobRuns(10),
     });
   });
