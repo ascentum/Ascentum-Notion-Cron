@@ -18,7 +18,9 @@ export function extractReflection(content: string): string | null {
   const heading = /^\s*(?:#{1,6}\s*)?(?:\*\*)?오늘의 배움 또는 남길 말(?:\*\*)?\s*$/m.exec(content);
   if (!heading) return null;
   const rest = content.slice(heading.index + heading[0].length);
-  const next = /^\s*(?:\*\*[^\n]+\*\*|#{1,6}\s+[^\n]+|헬스 체크\s*\(10점\))\s*$/m.exec(rest);
+  // Only known snippet fields end the section. A personal subheading or a
+  // standalone bold sentence is still part of the user's reflection.
+  const next = /^\s*(?:#{1,6}\s*)?(?:\*\*)?(?:오늘 한 일|수행 목적|헬스 체크\s*\(10점\))(?:\*\*)?\s*$/m.exec(rest);
   const result = (next ? rest.slice(0, next.index) : rest).trim();
   return result || null;
 }
