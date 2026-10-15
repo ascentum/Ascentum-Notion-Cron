@@ -38,6 +38,16 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Oracle C
 - 지원 동작은 `그대로 게시`, `헬스체크 입력`, `수정하기`, `건너뛰기`다.
 - 게시 완료 후 GCS Pulse AI 채점(`/daily-snippets/feedback`, `/weekly-snippets/feedback`)을 비동기로 트리거한다.
 
+### 데일리 회고 자동 저장
+
+- 기존 Oracle scheduler가 **매일 오전 9시(KST) 이후 첫 tick**에 **전날 업무일**의 데일리 스니펫을 확인한다. `ENABLE_DAILY_REFLECTION_SYNC=false`로 끌 수 있으며 기본은 활성이다.
+- Discord의 수정 후 게시 결과와 같은 SQLite 기록에서 박영민의 `posted` / `manual-edit` 데일리만 선택한다. 자동 게시·그대로 게시·헬스체크만 입력·주간 스니펫은 무시한다.
+- `오늘의 배움 또는 남길 말` 원문만 영민 회고록 DB(`NOTION_REFLECTION_DB_ID`, 기본 `3fabd55c-4778-803a-be0a-d82bea2341a6`)의 일반 문단으로 저장한다. 제목 `이름`은 `20261015(목)`, `날짜`는 해당 업무일의 종일 날짜다. 기존 `NOTION_API_KEY`에 대상 DB 접근 권한이 필요하다.
+- 날짜별 항목을 조회하여 중복 생성을 막는다. 기존 제목·날짜·본문이 예상과 다르거나 같은 날짜에 서로 다른 수정본이 있으면 덮어쓰지 않고 실패로 기록한다.
+- 성공 또는 수정 회고 없음으로 완료한 날은 재실행하지 않는다. 실패는 다음 tick에 재시도한다. 9시 이후 재시작하면 그날의 전날 건만 복구하며, 과거 누락분을 일괄 생성하지 않는다. 9시 실행 후 늦게 수정한 건은 소급 저장하지 않는다.
+- Notion 생성 전에 SQLite `scheduler_state`에 `reflection_creation:<DB ID>:<업무일>` 생성 의도를 원자적으로 저장한다. 응답 유실 후에는 Notion을 다시 조회하며, 결과가 계속 불확실하면 두 번째 생성 요청을 자동 전송하지 않는다. 복구 시 먼저 Notion 항목의 존재 여부와 중복 여부를 확인한다. **항목이 없음을 확인한 뒤에만** scheduler를 중지하고 해당 키를 삭제해 다시 시도한다.
+- `/healthz`의 `dailyReflectionEnabled`, `dailyReflectionSchedule`과 `scheduled-daily-reflection` 작업 기록에서 상태를 확인한다. Codex heartbeat는 사용하지 않는다.
+
 ### 3. 주간 미팅 리포트
 
 - Oracle scheduler가 매주 목요일 KST 기준으로 주간 리포트를 생성한다.

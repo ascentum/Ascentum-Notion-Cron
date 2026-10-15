@@ -45,6 +45,8 @@ export const config = {
   ),
   enableHamiltonCalendarAutoCreate: optionalBoolean("ENABLE_HAMILTON_CALENDAR_AUTO_CREATE", false),
   hamiltonNotionRepeatDisabled: optionalBoolean("HAMILTON_NOTION_REPEAT_DISABLED", false),
+  enableDailyReflectionSync: optionalBoolean("ENABLE_DAILY_REFLECTION_SYNC", true),
+  reflectionDatabaseId: process.env.NOTION_REFLECTION_DB_ID ?? "3fabd55c-4778-803a-be0a-d82bea2341a6",
   discordChannelId: required("DISCORD_CHANNEL_ID"),
   autoPostDelayMinutes: optionalInteger("AUTO_POST_DELAY_MINUTES", 30),
   schedulerTickSeconds: optionalInteger("SCHEDULER_TICK_SECONDS", 60),

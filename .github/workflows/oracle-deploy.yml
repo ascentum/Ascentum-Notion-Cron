@@ -170,6 +170,13 @@ jobs:
             console.log("WORK_HOURS_STATE=" + JSON.stringify(db.prepare(`
               SELECT * FROM scheduler_state WHERE key = ?
             `).get("last_work_hours_report_trigger_date")));
+            console.log("REFLECTION_RUNS=" + JSON.stringify(db.prepare(`
+              SELECT scheduled_for, status, started_at, finished_at, error
+              FROM job_runs WHERE job_name = ? ORDER BY id DESC LIMIT 5
+            `).all("scheduled-daily-reflection")));
+            console.log("REFLECTION_STATE=" + JSON.stringify(db.prepare(`
+              SELECT * FROM scheduler_state WHERE key = ?
+            `).get("last_daily_reflection_trigger_date")));
             db.close();
             const {config} = require("./dist/src/config");
             const headers = {Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`};
