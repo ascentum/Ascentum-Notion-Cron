@@ -86,6 +86,8 @@ async function main() {
     assert.equal(extractReflection(content), reflection);
     assert.equal(extractReflection("**오늘의 배움 또는 남길 말**\n회고\n\n헬스 체크 (10점)\n5"), "회고");
     assert.equal(extractReflection("오늘 한 일만 있음"), null);
+    assert.equal(extractReflection("**오늘의 배움 또는 남길 말**\n**개인적으로 중요한 배움**\n이 문장도 남겨야 한다.\n\n## 스스로의 다짐\n계속 시도하자."),
+      "**개인적으로 중요한 배움**\n이 문장도 남겨야 한다.\n\n## 스스로의 다짐\n계속 시도하자.", "headings inside a reflection must not truncate its content");
     assert.equal(extractReflection("**오늘의 배움 또는 남길 말**\n  "), null);
     for (const source of ["auto", "manual-post", "manual-health", "manual-skip"] as const) add(source);
     add("manual-edit", { type: "weekly" });
