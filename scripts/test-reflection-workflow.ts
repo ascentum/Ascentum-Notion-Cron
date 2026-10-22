@@ -39,5 +39,12 @@ try {
     const result = spawnSync("bash", ["-n"], { input: stepScript(name), encoding: "utf8" });
     assert.equal(result.status, 0, `${name}: ${result.stderr}`);
   }
+  const preflight = stepScript("Deploy").split('compose build notion-cron || { rollback; exit 1; }')[1]
+    .split('# Preflight in a temporary container')[0];
+  const streamed = spawnSync("bash", ["-se"], { encoding: "utf8", input:
+    'compose() { cat >/dev/null; echo PREFLIGHT; }; rollback() { echo ROLLBACK; }; REFLECTION_SOURCE_ID=fixture\n' +
+    preflight + '\necho SERVER_START_REACHED\n' });
+  assert.equal(streamed.status, 0, streamed.stderr);
+  assert.match(streamed.stdout, /SERVER_START_REACHED/, "Docker preflight must not consume streamed deployment script");
   console.log("reflection workflow mode, command and bash syntax tests passed");
 } finally { fs.rmSync(dir, { recursive: true, force: true }); }
