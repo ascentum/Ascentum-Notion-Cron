@@ -40,6 +40,8 @@ async function main() {
       hamiltonCalendarEnabled: config.enableHamiltonCalendarAutoCreate && config.hamiltonNotionRepeatDisabled,
       dailyReflectionEnabled: config.enableDailyReflectionSync,
       dailyReflectionSchedule: "09:00 Asia/Seoul (previous day)",
+      dailyReflectionDataSourceConfigured: Boolean(config.reflectionDataSourceId),
+      dailyReflectionAlertsEnabled: Boolean(config.reflectionAlertChannelId),
       recentJobs: listJobRuns(10),
     });
   });

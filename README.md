@@ -48,6 +48,14 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Oracle C
 - Notion 생성 전에 SQLite `scheduler_state`에 `reflection_creation:<DB ID>:<업무일>` 생성 의도를 원자적으로 저장한다. 응답 유실 후에는 Notion을 다시 조회하며, 결과가 계속 불확실하면 두 번째 생성 요청을 자동 전송하지 않는다. 복구 시 먼저 Notion 항목의 존재 여부와 중복 여부를 확인한다. **항목이 없음을 확인한 뒤에만** scheduler를 중지하고 해당 키를 삭제해 다시 시도한다.
 - `/healthz`의 `dailyReflectionEnabled`, `dailyReflectionSchedule`과 `scheduled-daily-reflection` 작업 기록에서 상태를 확인한다. Codex heartbeat는 사용하지 않는다.
 
+회고 DB가 여러 데이터 소스를 포함해도 동작하도록 `NOTION_REFLECTION_DATA_SOURCE_ID`를 **기존 회고가 있는 데이터 소스 UUID**로 명시한다. 회고 경로는 Notion API `2025-09-03`을 사용하며, 해당 소스가 대상 DB에 속하는지 조회 후 확인한다. API 버전만 바꾸거나 첫 번째 소스를 임의 선택하지 않는다. `Oracle Deploy`의 `DISCOVER`는 소스별 스키마와 10/14 기준 회고 제목·부모 정보를 조회한다. `DEPLOY`의 `reflection_source_id`로 검증한 ID를 운영 환경에 저장하고 새 서버 시작 전 읽기 전용 API 검증을 수행한다.
+
+저장 실패는 `REFLECTION_ALERT_CHANNEL_ID`(기본: 기존 운영용 mgmt 채널)로 날짜별 최초 1회, 이후 6시간 간격으로 알린다. 발송 성공 시각은 SQLite에 보존되며 회고 원문과 API 응답 전문은 알림에 넣지 않는다. Discord 전송 실패는 별도 오류로 기록하고 다음 tick에서 재시도하며 기존 작업을 막지 않는다. Discord 응답 유실 시 알림이 중복될 가능성은 있다. `/healthz`에서 `dailyReflectionDataSourceConfigured`, `dailyReflectionAlertsEnabled`도 확인할 수 있으며 실제 전달 여부는 Discord에서 확인한다.
+
+누락분 복구는 `Oracle Deploy`에서 `confirm=REFLECTION_CHECK`, `reflection_from=2026-10-15`, `reflection_to=2026-10-21`로 먼저 조회한다. `would-create`만 새로 생성할 대상이고 `existing`은 날짜·제목·본문이 검증된 기존 항목, `skipped`는 수정 회고가 없는 날짜다. 확인 후 같은 범위를 `confirm=REFLECTION_RECOVER`로 실행하고 다시 `REFLECTION_CHECK`하여 생성 대상이 남지 않았는지 확인한다. dry-run은 SQLite를 read-only로 연다. 실제 복구도 기존 생성 의도 잠금을 공유하여 scheduler와의 동시 중복 생성을 막는다. 충돌 날짜는 덮어쓰지 않으며 실패해도 나머지 날짜는 검사한다. 이후 재실행은 이미 완료된 날짜를 재사용한다. 날짜 범위는 전날까지 최대 366일이다. 과거 회고를 명시적으로 복구할 때는 현재까지 제출된 수정본을 확인하므로 오전 9시 이후 제출분도 포함한다.
+
+`confirm=REFLECTION_ALERT_TEST`는 검증용임을 표시한 메시지 1건을 보내고 Discord에서 다시 조회해 연결을 검증한다. 복구 날짜 입력과는 함께 사용할 수 없다. 컨테이너 내 직접 실행은 `node dist/scripts/recover-daily-reflections.js --from 2026-10-15 --to 2026-10-21 --dry-run`이며 실제 저장 시 `--dry-run`을 제외한다.
+
 ### 3. 주간 미팅 리포트
 
 - Oracle scheduler가 매주 목요일 KST 기준으로 주간 리포트를 생성한다.

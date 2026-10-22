@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: Type DEPLOY to deploy, DISCOVER to inspect, or RECOVER to resend a failed report
+        description: DEPLOY, DISCOVER, RECOVER (work hours), REFLECTION_CHECK, REFLECTION_RECOVER, or REFLECTION_ALERT_TEST
         required: true
         default: DISCOVER
       target_ref:
@@ -29,6 +29,18 @@ on:
         default: ""
       work_hours_recovery_date:
         description: Optional past Monday YYYY-MM-DD to resend a failed work-hours report
+        required: false
+        default: ""
+      reflection_source_id:
+        description: Verified reflection data source UUID to persist during DEPLOY
+        required: false
+        default: ""
+      reflection_from:
+        description: First reflection work date (YYYY-MM-DD)
+        required: false
+        default: ""
+      reflection_to:
+        description: Last reflection work date (YYYY-MM-DD)
         required: false
         default: ""
       enable_hamilton_calendar:
@@ -63,6 +75,9 @@ jobs:
       HEALTH_URL: https://notion-cron.168.110.123.188.sslip.io/healthz
       DIAGNOSTIC_DATE: ${{ inputs.diagnostic_date }}
       WORK_HOURS_RECOVERY_DATE: ${{ inputs.work_hours_recovery_date }}
+      REFLECTION_FROM: ${{ inputs.reflection_from }}
+      REFLECTION_TO: ${{ inputs.reflection_to }}
+      REFLECTION_SOURCE_ID: ${{ inputs.reflection_source_id }}
 
     steps:
       - name: Validate inputs
@@ -74,9 +89,19 @@ jobs:
           HAMILTON_REPEAT_DISABLED: ${{ inputs.hamilton_repeat_disabled_confirmed }}
         run: |
           set -euo pipefail
-          if [ "${CONFIRM}" != "DEPLOY" ] && [ "${CONFIRM}" != "DISCOVER" ] && [ "${CONFIRM}" != "RECOVER" ]; then
-            echo "Refusing: confirm must be DEPLOY, DISCOVER, or RECOVER."
-            exit 1
+          case "${CONFIRM}" in
+            DEPLOY|DISCOVER|RECOVER|REFLECTION_CHECK|REFLECTION_RECOVER|REFLECTION_ALERT_TEST) ;;
+            *) echo "Refusing: unsupported confirm mode."; exit 1 ;;
+          esac
+          if [ -n "${REFLECTION_SOURCE_ID:-}" ]; then
+            [ "${CONFIRM}" = "DEPLOY" ] || { echo "Source configuration requires DEPLOY"; exit 1; }
+            [[ "${REFLECTION_SOURCE_ID}" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || exit 1
+          fi
+          if [ "${CONFIRM}" = "REFLECTION_CHECK" ] || [ "${CONFIRM}" = "REFLECTION_RECOVER" ]; then
+            [[ "${REFLECTION_FROM:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || exit 1
+            [[ "${REFLECTION_TO:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || exit 1
+          elif [ -n "${REFLECTION_FROM:-}${REFLECTION_TO:-}" ]; then
+            echo "Reflection dates require REFLECTION_CHECK or REFLECTION_RECOVER"; exit 1
           fi
           if [[ ! "${TARGET_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "Refusing: target_ref contains unsupported characters."
@@ -223,6 +248,60 @@ jobs:
           exit 0
           REMOTE
 
+      - name: Inspect reflection data sources
+        if: ${{ inputs.confirm == 'DISCOVER' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
+            "docker exec -i oracle-notion-cron-1 node" <<'NODE'
+          (async () => {
+            const databaseId = process.env.NOTION_REFLECTION_DB_ID || "3fabd55c-4778-803a-be0a-d82bea2341a6";
+            const request = async (path, body) => {
+              const res = await fetch("https://api.notion.com/v1" + path, {
+                method: body ? "POST" : "GET",
+                headers: {Authorization: `Bearer ${process.env.NOTION_API_KEY}`, "Notion-Version": "2025-09-03", "Content-Type": "application/json"},
+                ...(body ? {body: JSON.stringify(body)} : {}), signal: AbortSignal.timeout(15000)
+              });
+              if (!res.ok) throw new Error(`Notion inspection HTTP ${res.status}`);
+              return res.json();
+            };
+            const database = await request(`/databases/${databaseId}`);
+            for (const source of database.data_sources) {
+              const schema = await request(`/data_sources/${source.id}`);
+              const properties = Object.fromEntries(Object.entries(schema.properties).map(([key,value]) => [key,value.type]));
+              let referencePages = [];
+              if (properties["날짜"] === "date") {
+                const result = await request(`/data_sources/${source.id}/query`, {filter:{property:"날짜",date:{equals:"2026-10-14"}},page_size:100});
+                referencePages = result.results.map(page => ({id:page.id,parent:page.parent,
+                  title:Object.values(page.properties).filter(p => p.type === "title").flatMap(p => p.title).map(t => t.plain_text).join("")}));
+              }
+              console.log("REFLECTION_SOURCE=" + JSON.stringify({id:source.id,name:source.name,properties,referencePages}));
+            }
+          })().catch(error => {console.error(error.message);process.exitCode=1;});
+          NODE
+
+      - name: Recover or check reflections
+        if: ${{ inputs.confirm == 'REFLECTION_CHECK' || inputs.confirm == 'REFLECTION_RECOVER' || inputs.confirm == 'REFLECTION_ALERT_TEST' }}
+        shell: bash
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ "${CONFIRM}" = "REFLECTION_ALERT_TEST" ]; then
+            ARGS+=(--test-alert)
+          else
+            ARGS+=(--from "${REFLECTION_FROM}" --to "${REFLECTION_TO}")
+            [ "${CONFIRM}" = "REFLECTION_CHECK" ] && ARGS+=(--dry-run)
+          fi
+          ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
+            docker exec oracle-notion-cron-1 node dist/scripts/recover-daily-reflections.js "${ARGS[@]}"
+
       - name: Recover failed work-hours report
         if: ${{ inputs.confirm == 'RECOVER' && inputs.work_hours_recovery_date != '' }}
         shell: bash
@@ -280,7 +359,7 @@ jobs:
           ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
-            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' HAMILTON_ENABLE='${HAMILTON_ENABLE}' bash -se" <<'REMOTE'
+            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' HAMILTON_ENABLE='${HAMILTON_ENABLE}' REFLECTION_SOURCE_ID='${REFLECTION_SOURCE_ID}' bash -se" <<'REMOTE'
           set -euo pipefail
 
           ENV_REL=ops/oracle/notion-cron.env
@@ -321,6 +400,17 @@ jobs:
 
           # 환경파일은 레포에 없는 운영 자산이다. 반드시 옮겨 심는다.
           cp -a "${APP}/${ENV_REL}" "${STAGE}/${ENV_REL}"
+
+          if [ -n "${REFLECTION_SOURCE_ID}" ]; then
+            python3 - "${STAGE}/${ENV_REL}" "${REFLECTION_SOURCE_ID}" <<'PY_REFLECTION'
+          import pathlib, sys
+          env_path = pathlib.Path(sys.argv[1])
+          lines = [line for line in env_path.read_text().splitlines()
+                   if line.partition("=")[0].strip() != "NOTION_REFLECTION_DATA_SOURCE_ID"]
+          lines.append("NOTION_REFLECTION_DATA_SOURCE_ID=" + sys.argv[2])
+          env_path.write_text("\n".join(lines) + "\n")
+          PY_REFLECTION
+          fi
 
           # Activation is opt-in, and validation above requires the separate
           # Notion repeat-disabled confirmation. Existing env is otherwise preserved.
@@ -363,6 +453,19 @@ jobs:
 
           echo "--- build (notion-cron only) ---"
           compose build notion-cron || { rollback; exit 1; }
+
+          if [ -n "${REFLECTION_SOURCE_ID}" ]; then
+            if ! compose run --rm --no-deps -e ENABLE_SCHEDULER=false notion-cron node -e '
+              const {config}=require("./dist/src/config");
+              require("./dist/src/services/reflection-notion-client").createReflectionClient({
+                databaseId:config.reflectionDatabaseId,dataSourceId:config.reflectionDataSourceId,token:process.env.NOTION_API_KEY
+              }).then(async client => {
+                await client.dataSources.query({data_source_id:config.reflectionDataSourceId,page_size:1,
+                  filter:{property:"날짜",date:{equals:"2026-10-14"}}});
+                console.log("REFLECTION_PREFLIGHT=passed");
+              }).catch(error => {console.error(error.message);process.exitCode=1;});
+            '; then rollback; exit 1; fi
+          fi
 
           # Preflight in a temporary container before the enabled server starts.
           # The service module does not start a scheduler; both flags are also

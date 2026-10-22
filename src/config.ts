@@ -47,6 +47,8 @@ export const config = {
   hamiltonNotionRepeatDisabled: optionalBoolean("HAMILTON_NOTION_REPEAT_DISABLED", false),
   enableDailyReflectionSync: optionalBoolean("ENABLE_DAILY_REFLECTION_SYNC", true),
   reflectionDatabaseId: process.env.NOTION_REFLECTION_DB_ID ?? "3fabd55c-4778-803a-be0a-d82bea2341a6",
+  reflectionDataSourceId: process.env.NOTION_REFLECTION_DATA_SOURCE_ID ?? "",
+  reflectionAlertChannelId: process.env.REFLECTION_ALERT_CHANNEL_ID ?? process.env.WORK_HOURS_CHANNEL_ID ?? "1483333112686579774",
   discordChannelId: required("DISCORD_CHANNEL_ID"),
   autoPostDelayMinutes: optionalInteger("AUTO_POST_DELAY_MINUTES", 30),
   schedulerTickSeconds: optionalInteger("SCHEDULER_TICK_SECONDS", 60),

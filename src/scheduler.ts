@@ -12,6 +12,7 @@ import { runWeeklyReport } from "./services/weekly-report-service";
 import { runWorkHoursReport } from "./services/work-hours-service";
 import { getHamiltonCalendarSchedule, runHamiltonCalendar } from "./services/hamilton-calendar-service";
 import { getDailyReflectionSchedule, runDailyReflection } from "./services/daily-reflection-service";
+import { notifyReflectionFailure } from "./services/reflection-alert-service";
 
 const DAILY_STATE_KEY = "last_daily_send_trigger_date";
 const WEEKLY_STATE_KEY = "last_weekly_report_trigger_date";
@@ -83,6 +84,8 @@ export function startScheduler(nowProvider: () => Date = () => new Date()) {
           });
         } catch (error) {
           console.error("[scheduler] daily reflection failed:", error);
+          try { await notifyReflectionFailure(reflectionSchedule.targetDate, reflectionNow); }
+          catch (alertError) { console.error("[scheduler] reflection alert failed:", alertError); }
         }
       }
       // This job has its own error boundary: a Discord/OpenAI failure must not
