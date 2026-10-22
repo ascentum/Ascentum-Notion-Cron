@@ -455,7 +455,7 @@ jobs:
           compose build notion-cron || { rollback; exit 1; }
 
           if [ -n "${REFLECTION_SOURCE_ID}" ]; then
-            if ! compose run --rm --no-deps -e ENABLE_SCHEDULER=false notion-cron node -e '
+            if ! compose run --rm --no-deps -T -e ENABLE_SCHEDULER=false notion-cron node -e '
               const {config}=require("./dist/src/config");
               require("./dist/src/services/reflection-notion-client").createReflectionClient({
                 databaseId:config.reflectionDatabaseId,dataSourceId:config.reflectionDataSourceId,token:process.env.NOTION_API_KEY
@@ -464,14 +464,14 @@ jobs:
                   filter:{property:"날짜",date:{equals:"2026-10-14"}}});
                 console.log("REFLECTION_PREFLIGHT=passed");
               }).catch(error => {console.error(error.message);process.exitCode=1;});
-            '; then rollback; exit 1; fi
+            ' </dev/null; then rollback; exit 1; fi
           fi
 
           # Preflight in a temporary container before the enabled server starts.
           # The service module does not start a scheduler; both flags are also
           # explicitly off here. Dry-run does not initialize or modify SQLite.
           if [ "${HAMILTON_ENABLE}" = "true" ]; then
-            if ! compose run --rm --no-deps -e ENABLE_SCHEDULER=false \
+            if ! compose run --rm --no-deps -T -e ENABLE_SCHEDULER=false \
               -e ENABLE_HAMILTON_CALENDAR_AUTO_CREATE=false notion-cron node -e '
 
               const {getKstDateInfo, shiftIsoDate} = require("./dist/lib/time");
@@ -484,7 +484,7 @@ jobs:
               ).then(result => console.log(JSON.stringify(result))).catch(error => {
                 console.error(error); process.exit(1);
               });
-            '; then
+            ' </dev/null; then
               rollback
               exit 1
             fi
@@ -492,6 +492,15 @@ jobs:
 
           echo "--- start (notion-cron only) ---"
           compose up -d notion-cron || { rollback; exit 1; }
+
+          if ! docker exec oracle-notion-cron-1 node -e '
+            const fs=require("node:fs");
+            const {config}=require("./dist/src/config");
+            if (!fs.existsSync("./dist/scripts/recover-daily-reflections.js") ||
+                (config.enableDailyReflectionSync && !config.reflectionDataSourceId)) process.exit(1);
+            require("./dist/src/services/reflection-alert-service");
+            console.log("REFLECTION_RUNTIME=verified");
+          ' </dev/null; then rollback; exit 1; fi
 
           echo "--- health ---"
           ok=no
@@ -513,6 +522,15 @@ jobs:
           curl -fsS --max-time 10 "${HEALTH_URL}"; echo
           compose ps
           REMOTE
+          # Also verify outside streamed SSH input: a command accidentally
+          # consuming stdin must never turn an incomplete deployment green.
+          curl -fsS --max-time 15 "${HEALTH_URL}" | python3 -c '
+          import json, sys
+          health = json.load(sys.stdin)
+          assert health.get("dailyReflectionDataSourceConfigured") is True
+          assert health.get("dailyReflectionAlertsEnabled") is True
+          print("REFLECTION_DEPLOYMENT=verified")
+          '
 
       - name: Clean up key
         if: always()
