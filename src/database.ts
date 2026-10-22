@@ -135,13 +135,13 @@ function withImmediateTransaction<T>(fn: () => T): T {
   }
 }
 
-export function initializeDatabase() {
+export function initializeDatabase(readOnly = false) {
   if (database) return database;
 
   const dbPath = getDatabasePath();
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  database = new DatabaseSync(dbPath);
-  initializeSchema(database);
+  if (!readOnly) fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  database = new DatabaseSync(dbPath, { readOnly });
+  if (!readOnly) initializeSchema(database);
   return database;
 }
 

@@ -19,6 +19,10 @@ async function main() {
   stub("../src/config", { config });
   const { getDailyReflectionSchedule } = require("../src/services/daily-reflection-service");
   const calls: Date[] = [];
+  let alertCalls = 0;
+  stub("../src/services/reflection-alert-service", { async notifyReflectionFailure(date: string) {
+    assert.equal(date, "2026-10-14"); alertCalls++; throw new Error("fixture alert failure");
+  } });
   let fail = false, sweepFails = true, dailyCalls = 0;
   stub("../src/services/daily-reflection-service", { getDailyReflectionSchedule,
     async runDailyReflection(now: Date) { calls.push(now); if (fail) throw new Error("fixture sync failure");
@@ -56,6 +60,7 @@ async function main() {
     stop(); db.getDatabase().exec("DELETE FROM scheduler_state; DELETE FROM job_runs;");
     fail = true; sweepFails = false; start(); await settle();
     assert.equal(calls.length, 2); assert.equal(db.getSchedulerState(key), null);
+    assert.equal(alertCalls, 1, "failed sync must notify without blocking retries when alert fails");
     assert.equal(db.listJobRuns(20).find(j => j.jobName === "scheduled-daily-reflection")?.status, "failed");
     fail = false; await next(); assert.equal(calls.length, 3); assert.equal(db.getSchedulerState(key), "2026-10-15");
     now = new Date("2026-10-16T00:00:00Z"); await next();

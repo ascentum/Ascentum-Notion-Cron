@@ -10,6 +10,7 @@ async function main() {
     SQLITE_DB_PATH: path.join(dir, "test.sqlite"), INTERNAL_ADMIN_TOKEN: "fixture",
     DISCORD_CHANNEL_ID: "fixture", NOTION_USER_YOUNGMIN: "fixture",
     GCS_API_TOKEN_YOUNGMIN: "fixture", NOTION_API_KEY: "fixture",
+    NOTION_REFLECTION_DATA_SOURCE_ID: "reflection-source",
   });
   const db = require("../src/database") as typeof import("../src/database");
   let service: any;
@@ -45,8 +46,9 @@ async function main() {
     return p;
   };
   const client = {
-    databases: { query: async (input: any) => {
+    dataSources: { query: async (input: any) => {
       queryCalls++;
+      assert.equal(input.data_source_id, "reflection-source");
       assert.deepEqual(input.filter, { property: "날짜", date: { equals: "2026-10-14" } });
       // Even a nonempty cursor page must be followed, without assuming one page.
       if (!input.start_cursor) return { results: [], has_more: true, next_cursor: "page-2" };
@@ -56,6 +58,7 @@ async function main() {
       retrieve: async ({ page_id }: any) => pages.find(p => p.id === page_id),
       create: async (input: any) => {
         creates++;
+        assert.deepEqual(input.parent, { type: "data_source_id", data_source_id: "reflection-source" });
         assert.ok(input.children.every((b: any) => b.paragraph.rich_text.every((t: any) => t.text.content.length <= 2000)));
         assert.equal(input.properties["이름"].title[0].text.content, "20261014(수)");
         assert.deepEqual(input.properties["날짜"].date, { start: "2026-10-14" });
@@ -154,6 +157,12 @@ async function main() {
     assert.equal((await runDailyReflection(now, { client, dryRun: true })).status, "would-create");
     assert.equal(creates, 0);
     assert.equal(db.getDatabase().prepare("SELECT COUNT(*) AS n FROM scheduler_state").get()!.n, 0);
+    const recoveryNow = new Date("2026-10-22T00:00:00Z");
+    assert.equal((await runDailyReflection(recoveryNow, { targetDate: "2026-10-14", client })).status, "created");
+    assert.equal((await runDailyReflection(recoveryNow, { targetDate: "2026-10-14", client })).status, "existing");
+    assert.equal(creates, 1, "historical recovery must be idempotent");
+    await assert.rejects(runDailyReflection(recoveryNow, { targetDate: "2026-02-30", client }), /valid past/);
+    await assert.rejects(runDailyReflection(recoveryNow, { targetDate: "2026-10-22", client }), /valid past/);
     console.log("daily reflection tests passed");
   } finally { db.closeDatabase(); fs.rmSync(dir, { recursive: true, force: true }); }
 }

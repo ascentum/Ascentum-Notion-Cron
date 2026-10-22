@@ -1,5 +1,5 @@
 import { config } from "../config";
-import { Client } from "@notionhq/client";
+import { createReflectionClient, ReflectionClient } from "./reflection-notion-client";
 import { getKstDateInfo, shiftIsoDate } from "../../lib/time";
 import { claimReflectionCreation, listEditedDailyReflections } from "../database";
 
@@ -25,14 +25,13 @@ export function extractReflection(content: string): string | null {
   return result || null;
 }
 
-type ReflectionClient = Pick<Client, "databases" | "pages" | "blocks">;
-interface Options { client?: ReflectionClient; dryRun?: boolean }
+interface Options { client?: ReflectionClient; dryRun?: boolean; targetDate?: string }
 
 async function pagesForDate(client: ReflectionClient, targetDate: string) {
   const pages = [];
   let cursor: string | undefined;
   do {
-    const result = await client.databases.query({ database_id: config.reflectionDatabaseId,
+    const result = await client.dataSources.query({ data_source_id: config.reflectionDataSourceId,
       filter: { property: "날짜", date: { equals: targetDate } }, page_size: 100, start_cursor: cursor });
     pages.push(...result.results);
     cursor = result.has_more ? result.next_cursor ?? undefined : undefined;
@@ -68,16 +67,20 @@ async function verifyPage(client: ReflectionClient, id: string, targetDate: stri
 
 export async function runDailyReflection(now = new Date(), options: Options = {}) {
   const schedule = getDailyReflectionSchedule(now);
-  const { targetDate } = schedule;
-  if (!schedule.due) return { status: "not-due" as const, targetDate };
+  const targetDate = options.targetDate ?? schedule.targetDate;
+  if (options.targetDate && (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) ||
+      !Number.isFinite(Date.parse(`${targetDate}T00:00:00Z`)) ||
+      new Date(`${targetDate}T00:00:00Z`).toISOString().slice(0, 10) !== targetDate || targetDate > schedule.targetDate)) {
+    throw new Error("Reflection recovery requires a valid past target date");
+  }
+  if (!options.targetDate && !schedule.due) return { status: "not-due" as const, targetDate };
   const dispatches = listEditedDailyReflections(targetDate, now.toISOString());
   const reflections = new Set(dispatches.map(d => extractReflection(d.content)).filter((s): s is string => s !== null));
   if (reflections.size === 0) return { status: "skipped" as const, targetDate, reason: "no edited reflection" };
   if (reflections.size > 1) throw new Error(`Multiple edited reflections conflict: ${targetDate}`);
   const [reflection] = reflections;
-  // SDK v2 sends a single request; do not wrap create in a retry. A timed-out
-  // POST may already have created the page and must reconcile by date first.
-  const client = options.client ?? new Client({ auth: process.env.NOTION_API_KEY, timeoutMs: 15_000 });
+  const client = options.client ?? await createReflectionClient({ databaseId: config.reflectionDatabaseId,
+    dataSourceId: config.reflectionDataSourceId, token: process.env.NOTION_API_KEY ?? "" });
   const existing = await pagesForDate(client, targetDate);
   if (existing.length > 1) throw new Error(`Multiple Notion reflections conflict: ${targetDate}`);
   if (existing.length === 1) {
@@ -95,7 +98,7 @@ export async function runDailyReflection(now = new Date(), options: Options = {}
       type: "text" as const, text: { content },
     })) },
   }));
-  const created = await client.pages.create({ parent: { database_id: config.reflectionDatabaseId },
+  const created = await client.pages.create({ parent: { type: "data_source_id", data_source_id: config.reflectionDataSourceId },
     properties: { "이름": { title: [{ type: "text", text: { content: formatReflectionTitle(targetDate) } }] },
       "날짜": { date: { start: targetDate } } }, children });
   await verifyPage(client, created.id, targetDate, reflection);
