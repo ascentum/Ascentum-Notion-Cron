@@ -11,7 +11,7 @@ function stepScript(name: string) {
 }
 const validation = stepScript("Validate inputs");
 const env = { PATH: process.env.PATH, TARGET_REF: "main", DIAGNOSTIC_DATE: "", WORK_HOURS_RECOVERY_DATE: "",
-  HAMILTON_ENABLE: "false", HAMILTON_REPEAT_DISABLED: "false", REFLECTION_FROM: "2026-10-15", REFLECTION_TO: "2026-10-21" };
+  REFLECTION_FROM: "2026-10-15", REFLECTION_TO: "2026-10-21" };
 for (const [mode, overrides, valid] of [
   ["REFLECTION_CHECK", {}, true], ["REFLECTION_RECOVER", {}, true],
   ["REFLECTION_RECOVER", { REFLECTION_TO: "2026-10-21';exit 0" }, false],
@@ -40,7 +40,7 @@ try {
     assert.equal(result.status, 0, `${name}: ${result.stderr}`);
   }
   const preflight = stepScript("Deploy").split('compose build notion-cron || { rollback; exit 1; }')[1]
-    .split('# Preflight in a temporary container')[0];
+    .split('echo "--- start (notion-cron only) ---"')[0];
   const streamed = spawnSync("bash", ["-se"], { encoding: "utf8", input:
     'compose() { cat >/dev/null; echo PREFLIGHT; }; rollback() { echo ROLLBACK; }; REFLECTION_SOURCE_ID=fixture\n' +
     preflight + '\necho SERVER_START_REACHED\n' });

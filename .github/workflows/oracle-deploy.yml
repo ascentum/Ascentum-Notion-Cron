@@ -43,16 +43,6 @@ on:
         description: Last reflection work date (YYYY-MM-DD)
         required: false
         default: ""
-      enable_hamilton_calendar:
-        description: Enable Hamilton previous-day creation (requires repeat-disabled confirmation)
-        type: boolean
-        required: false
-        default: false
-      hamilton_repeat_disabled_confirmed:
-        description: Hamilton Notion repeating template has been disabled and verified
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
@@ -85,8 +75,6 @@ jobs:
         env:
           CONFIRM: ${{ inputs.confirm }}
           TARGET_REF: ${{ inputs.target_ref }}
-          HAMILTON_ENABLE: ${{ inputs.enable_hamilton_calendar }}
-          HAMILTON_REPEAT_DISABLED: ${{ inputs.hamilton_repeat_disabled_confirmed }}
         run: |
           set -euo pipefail
           case "${CONFIRM}" in
@@ -122,11 +110,6 @@ jobs:
             test -n "${WORK_HOURS_RECOVERY_DATE}" || { echo "Refusing: RECOVER requires work_hours_recovery_date."; exit 1; }
           elif [ -n "${WORK_HOURS_RECOVERY_DATE}" ]; then
             echo "Refusing: report recovery requires confirm=RECOVER."
-            exit 1
-          fi
-
-          if [ "${HAMILTON_ENABLE}" = "true" ] && [ "${HAMILTON_REPEAT_DISABLED}" != "true" ]; then
-            echo "Refusing Hamilton activation without repeat-disabled confirmation."
             exit 1
           fi
 
@@ -353,13 +336,12 @@ jobs:
         shell: bash
         env:
           TARGET_REF: ${{ inputs.target_ref }}
-          HAMILTON_ENABLE: ${{ inputs.enable_hamilton_calendar }}
         run: |
           set -euo pipefail
           ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
-            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' HAMILTON_ENABLE='${HAMILTON_ENABLE}' REFLECTION_SOURCE_ID='${REFLECTION_SOURCE_ID}' bash -se" <<'REMOTE'
+            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' REFLECTION_SOURCE_ID='${REFLECTION_SOURCE_ID}' bash -se" <<'REMOTE'
           set -euo pipefail
 
           ENV_REL=ops/oracle/notion-cron.env
@@ -412,25 +394,18 @@ jobs:
           PY_REFLECTION
           fi
 
-          # Activation is opt-in, and validation above requires the separate
-          # Notion repeat-disabled confirmation. Existing env is otherwise preserved.
-          if [ "${HAMILTON_ENABLE}" = "true" ]; then
-            python3 - "${STAGE}/${ENV_REL}" <<'PY_ENV'
+          # Retired 2026-10-31: discard legacy Hamilton activation settings.
+          python3 - "${STAGE}/${ENV_REL}" <<'PY_ENV'
           import pathlib, sys
           env_path = pathlib.Path(sys.argv[1])
-          updates = {
-              "ENABLE_HAMILTON_CALENDAR_AUTO_CREATE": "true",
-              "HAMILTON_NOTION_REPEAT_DISABLED": "true",
-              "NOTION_WORK_CALENDAR_DB_ID": "26abd55c-4778-80b1-a96c-dc8cf9f1a0e4",
-              "NOTION_HAMILTON_CALENDAR_TEMPLATE_ID": "3f2bd55c-4778-8043-9ed0-d337f8b50734",
-              "NOTION_USER_HAMILTON": "3f0d872b-594c-81a9-a34d-00024bd9314d",
+          retired = {
+              "ENABLE_HAMILTON_CALENDAR_AUTO_CREATE", "HAMILTON_NOTION_REPEAT_DISABLED",
+              "NOTION_HAMILTON_CALENDAR_TEMPLATE_ID", "NOTION_USER_HAMILTON",
           }
           lines = [line for line in env_path.read_text().splitlines()
-                   if line.partition("=")[0].strip() not in updates]
-          lines.extend(f"{key}={value}" for key, value in updates.items())
+                   if line.partition("=")[0].strip() not in retired]
           env_path.write_text("\n".join(lines) + "\n")
           PY_ENV
-          fi
 
           echo "--- backing up to ${BACKUP} ---"
           mkdir -p "${BACKUP%/*}"
@@ -465,29 +440,6 @@ jobs:
                 console.log("REFLECTION_PREFLIGHT=passed");
               }).catch(error => {console.error(error.message);process.exitCode=1;});
             ' </dev/null; then rollback; exit 1; fi
-          fi
-
-          # Preflight in a temporary container before the enabled server starts.
-          # The service module does not start a scheduler; both flags are also
-          # explicitly off here. Dry-run does not initialize or modify SQLite.
-          if [ "${HAMILTON_ENABLE}" = "true" ]; then
-            if ! compose run --rm --no-deps -T -e ENABLE_SCHEDULER=false \
-              -e ENABLE_HAMILTON_CALENDAR_AUTO_CREATE=false notion-cron node -e '
-
-              const {getKstDateInfo, shiftIsoDate} = require("./dist/lib/time");
-              let targetDate = shiftIsoDate(getKstDateInfo().isoDate, 1);
-              while (![0,3,4,5,6].includes(new Date(targetDate + "T00:00:00Z").getUTCDay())) {
-                targetDate = shiftIsoDate(targetDate, 1);
-              }
-              require("./dist/src/services/hamilton-calendar-service").runHamiltonCalendar(
-                new Date(), {targetDate, dryRun: true}
-              ).then(result => console.log(JSON.stringify(result))).catch(error => {
-                console.error(error); process.exit(1);
-              });
-            ' </dev/null; then
-              rollback
-              exit 1
-            fi
           fi
 
           echo "--- start (notion-cron only) ---"

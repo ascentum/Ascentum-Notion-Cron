@@ -64,37 +64,19 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Oracle C
 
 ### 4. 업무 캘린더 링크드 뷰 필터 보정
 
-- GitHub Actions가 KST 평일 03:00에 `사람`이 박영민 또는 Hamilton인 `어센텀 업무 ...` 캘린더 페이지를 스캔한다.
+- GitHub Actions가 KST 평일 03:00에 `사람`이 박영민인 `어센텀 업무 ...` 캘린더 페이지를 스캔한다.
 - 각 페이지의 첫 번째 콜아웃 안에 있는 `오늘의 업무` 테이블만 선택해 `완료일 = today` 필터를 해당 페이지의 `일정` 날짜로 바꾼다. 날짜 조건이 없으면 완료일 quick filter를 추가하고 담당자·카테고리 필터는 유지한다.
-- 독립 보정과 Hamilton 생성 모두 같은 상단 테이블을 대상으로 한다. 아래 `Archy 업무` 등 다른 링크드뷰는 수정하지 않는다. 상단 대상 테이블이 없거나 여러 개면 임의 선택하지 않고 실패한다.
+- 보정은 상단 테이블을 대상으로 한다. 아래 `Archy 업무` 등 다른 링크드뷰는 수정하지 않는다. 상단 대상 테이블이 없거나 여러 개면 임의 선택하지 않고 실패한다.
 - 이미 날짜가 고정된 `완료일` 필터는 기본적으로 다시 바꾸지 않는다.
 - 기본 스캔 범위는 KST 오늘 기준 2일 전부터 오늘까지다.
 - 수동 실행은 GitHub Actions의 `Fix Notion linked view filters` workflow에서 `target_date`를 지정해 실행한다.
 
-### Hamilton 업무 캘린더 전날 생성
+### Hamilton 자동화 종료 (2026-10-31)
 
-- Oracle scheduler가 한국 시간 화~토 13시 이후 첫 tick에 다음 날 수~일 Hamilton 페이지를 생성한다. 재시작 시 같은 날 누락된 작업은 복구하며 이전 날짜는 일괄 생성하지 않는다.
-- 기존 Hamilton 템플릿을 사용하고 제목은 `어센텀 업무 ` 뒤에 다음 업무일의 **Notion 날짜 멘션**을 넣고, `일정`은 다음 날, `사람`은 Hamilton으로 설정한다. 서버 API로 만든 멘션은 `@2026년 10월 9일`처럼 절대 날짜로 표시된다. 상대 날짜 형식은 공개 API가 지원하지 않아 사용자가 서버 날짜 멘션 방식을 선택했다. 일반 텍스트 날짜나 고정된 `@오늘` 문자열로 저장하지 않으며, 기존에 올바른 날짜 멘션이 있으면 제목을 재설정하지 않아 Notion에서 설정한 표시 형식을 유지한다.
-- 템플릿 적용이 비동기이므로 뷰와 필터가 모두 준비될 때까지 기다린다. 생성 직후 잠시 빈 본문이나 `today` 필터가 보일 수 있다.
-- 첫 번째 콜아웃의 `오늘의 업무` 테이블에서만 완료일을 다음 업무일로 고정한다. 템플릿에 날짜 조건이 없으면 해당 조건을 추가하며, 담당자·카테고리와 기존 필터 논리는 유지한다. 아래 `Archy 업무`는 템플릿의 상대 날짜 조건을 그대로 유지한다.
-- 이미 같은 날짜 Hamilton 페이지가 있으면 재사용한다. 여러 개면 임의 수정하지 않고 실패한다. 같은 SQLite를 쓰는 CLI와 scheduler의 동시 실행도 날짜별 잠금으로 직렬화한다.
-- `ENABLE_HAMILTON_CALENDAR_AUTO_CREATE=true`와 `HAMILTON_NOTION_REPEAT_DISABLED=true`가 모두 있어야 자동 생성이 활성화된다. **먼저 Notion의 Hamilton 템플릿 반복 생성을 해제하고 확인한다.** 기본은 비활성이다. 박영민 반복 생성 설정은 유지한다.
-- 생성 요청의 응답 유실은 기존 페이지 조회로 복구한다. 생성 결과가 불확실하고 페이지가 조회되지 않으면 두 번째 생성 요청을 보내지 않고 오류를 기록한다. `/healthz`에서 `hamiltonCalendarEnabled` 및 최근 `scheduled-hamilton-calendar` 실행 기록을 확인한다.
-
-수동 실행은 대상 날짜(수~일)를 명시한다. dry-run은 Notion과 SQLite를 수정하지 않는다. 실제 실행은 반복 생성 해제 확인값이 필요하다.
-
-```bash
-npm run notion:create-hamilton-calendar -- --dry-run --target-date 2026-10-08 --env ops/oracle/notion-cron.env
-npm run notion:create-hamilton-calendar -- --target-date 2026-10-08 --env ops/oracle/notion-cron.env
-```
-
-Oracle 컨테이너에는 개발용 `tsx`가 없으므로 빌드된 CLI를 사용한다.
-
-```bash
-docker exec oracle-notion-cron-1 node dist/scripts/create-hamilton-calendar.js --dry-run --target-date 2026-10-08
-```
-
-응답 유실 후 `creation outcome is uncertain` 오류가 지속되면 먼저 Notion에서 해당 날짜 Hamilton 페이지의 존재 여부를 직접 확인한다. 페이지가 있으면 다음 실행의 조회로 복구한다. **페이지가 없음을 확인한 뒤에만** scheduler를 잠시 끄고 `calendar_page_runs`의 해당 날짜 `creation_requested=0`, `lock_owner=NULL`, `lock_until=NULL`로 초기화한다. 페이지가 존재할 가능성이 있는 상태에서 초기화하면 중복 생성될 수 있다.
+- Hamilton 업무 캘린더 자동 생성, 수동 생성 CLI, 배포 활성화 옵션을 제거했다.
+- 날짜 필터 자동 보정은 박영민 페이지만 대상으로 한다.
+- 기존 Notion 페이지와 SQLite 실행 이력은 보존한다. 이전 Hamilton 환경변수는 무시되며 배포 시 제거된다.
+- Notion 자체 템플릿 반복 생성은 2026-10-07에 해제된 상태다.
 
 ### 5. 주간 업무 시간 리포트
 
@@ -119,8 +101,6 @@ SQLITE_DB_PATH=./data/automation.sqlite
 INTERNAL_ADMIN_TOKEN=
 ENABLE_SCHEDULER=false
 ENABLE_MEETING_PAGE_AUTO_CREATE=false
-ENABLE_HAMILTON_CALENDAR_AUTO_CREATE=false
-HAMILTON_NOTION_REPEAT_DISABLED=false
 AUTO_POST_DELAY_MINUTES=30
 SCHEDULER_TICK_SECONDS=60
 APP_BASE_URL=
@@ -131,10 +111,8 @@ NOTION_WORK_DB_ID=
 NOTION_WORK_CALENDAR_DB_ID=
 NOTION_WORK_CALENDAR_TITLE_PREFIX=어센텀 업무
 NOTION_WORK_CALENDAR_DATE_PROPERTY_NAME=일정
-NOTION_HAMILTON_CALENDAR_TEMPLATE_ID=3f2bd55c-4778-8043-9ed0-d337f8b50734
-NOTION_USER_HAMILTON=3f0d872b-594c-81a9-a34d-00024bd9314d
 NOTION_WORK_CALENDAR_PERSON_PROPERTY_NAME=사람
-# 박영민 보정 대상 ID. 미설정 시 NOTION_USER_YOUNGMIN으로 폴백한다. Hamilton도 함께 조회한다.
+# 박영민 보정 대상 ID. 미설정 시 NOTION_USER_YOUNGMIN으로 폴백한다. 박영민만 조회한다.
 NOTION_WORK_CALENDAR_PERSON_ID=
 NOTION_LINKED_VIEW_DATE_PROPERTY_NAME=완료일
 NOTION_WORK_CALENDAR_LOOKBACK_DAYS=2
@@ -259,8 +237,7 @@ npm run test:work-queries
 npm run test:automation-state
 npm run test:load-env
 npm run test:work-calendar-view-filters
-npm run test:hamilton-calendar
-npm run test:hamilton-scheduler
+npm run test:hamilton-retirement
 npm run test:work-hours
 ```
 
@@ -298,7 +275,6 @@ self-hosted runner는 `notion-cron` 라벨로 이 레포에 등록되어 있어�
 
 러너는 `archy-github-runner` VM에 올린다. 그 VM은 같은 VCN 안에 있어 배포 대상 호스트의 22번이 열려 있는 두 IP 중 하나다. 등록 관례는 `~/actions-runner-<이름>` 디렉터리에 받아 `svc.sh`로 systemd 서비스를 만드는 것이다. 같은 VM에 다른 레포용 러너가 이미 여러 개 떠 있다.
 
-Hamilton 생성기를 처음 활성화할 때는 Notion 반복 해제를 확인한 후 `Oracle Deploy`의 `enable_hamilton_calendar=true`와 `hamilton_repeat_disabled_confirmed=true`를 함께 지정한다. 두 확인값은 배포 시 Oracle 환경 파일의 생성 활성화/반복 해제 확인값과 확인된 캘린더·Hamilton 템플릿·사람 ID에 반영된다. 서버를 시작하기 전에 scheduler를 끈 임시 컨테이너에서 다음 근무일 dry-run을 통과해야 활성화한다. 기존 환경은 백업되어 롤백 시 복구된다. 이후 일반 배포는 해당 값을 보존한다.
 
 ### 수동 배포
 

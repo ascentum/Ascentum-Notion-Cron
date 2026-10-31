@@ -642,10 +642,7 @@ export async function runWorkCalendarFilterFix() {
         "Set it to the Notion user ID whose 업무 캘린더 pages should be fixed."
     );
   }
-  const calendarPersonIds = [...new Set([
-    calendarPersonId,
-    process.env.NOTION_USER_HAMILTON ?? "3f0d872b-594c-81a9-a34d-00024bd9314d",
-  ])];
+  const calendarPersonIds = [calendarPersonId];
   const linkedViewDatePropertyName =
     process.env.NOTION_LINKED_VIEW_DATE_PROPERTY_NAME ??
     DEFAULT_LINKED_VIEW_DATE_PROPERTY_NAME;

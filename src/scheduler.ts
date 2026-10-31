@@ -10,14 +10,12 @@ import { sendDailySnippets } from "./services/daily-snippet-service";
 import { sweepDueDispatches } from "./services/dispatch-service";
 import { runWeeklyReport } from "./services/weekly-report-service";
 import { runWorkHoursReport } from "./services/work-hours-service";
-import { getHamiltonCalendarSchedule, runHamiltonCalendar } from "./services/hamilton-calendar-service";
 import { getDailyReflectionSchedule, runDailyReflection } from "./services/daily-reflection-service";
 import { notifyReflectionFailure } from "./services/reflection-alert-service";
 
 const DAILY_STATE_KEY = "last_daily_send_trigger_date";
 const WEEKLY_STATE_KEY = "last_weekly_report_trigger_date";
 const WORK_HOURS_STATE_KEY = "last_work_hours_report_trigger_date";
-const HAMILTON_CALENDAR_STATE_KEY = "last_hamilton_calendar_trigger_date";
 const REFLECTION_STATE_KEY = "last_daily_reflection_trigger_date";
 
 function bootstrapSchedulerState(now: Date) {
@@ -86,28 +84,6 @@ export function startScheduler(nowProvider: () => Date = () => new Date()) {
           console.error("[scheduler] daily reflection failed:", error);
           try { await notifyReflectionFailure(reflectionSchedule.targetDate, reflectionNow); }
           catch (alertError) { console.error("[scheduler] reflection alert failed:", alertError); }
-        }
-      }
-      // This job has its own error boundary: a Discord/OpenAI failure must not
-      // prevent tomorrow's calendar from being prepared (and vice versa).
-      const calendarNow = nowProvider();
-      const calendarSchedule = getHamiltonCalendarSchedule(calendarNow);
-      if (config.enableHamiltonCalendarAutoCreate && config.hamiltonNotionRepeatDisabled &&
-        calendarSchedule.due &&
-        getSchedulerState(HAMILTON_CALENDAR_STATE_KEY) !== calendarSchedule.triggerDate) {
-        try {
-          await runTrackedJob("scheduled-hamilton-calendar", calendarSchedule.targetDate, async () => {
-            const result = await runHamiltonCalendar(calendarNow);
-            if (result.status === "created" || result.status === "repaired") {
-              setSchedulerState(HAMILTON_CALENDAR_STATE_KEY, calendarSchedule.triggerDate, new Date().toISOString());
-            }
-            if (result.status !== "created" && result.status !== "repaired") {
-              throw new Error(`Hamilton calendar did not complete: ${result.status}`);
-            }
-            return result;
-          });
-        } catch (error) {
-          console.error("[scheduler] Hamilton calendar failed:", error);
         }
       }
       await sweepDueDispatches();

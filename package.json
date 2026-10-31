@@ -11,9 +11,6 @@
     "start": "node dist/src/server.js",
     "register:commands": "tsx scripts/register-commands.ts",
     "notion:fix-work-calendar-views": "tsx scripts/fix-work-calendar-linked-view-filters.ts",
-    "notion:create-hamilton-calendar": "tsx scripts/create-hamilton-calendar.ts",
-    "test:hamilton-calendar": "tsx scripts/test-hamilton-calendar.ts",
-    "test:hamilton-scheduler": "tsx scripts/test-hamilton-scheduler.ts",
     "test:daily-reflection": "tsx scripts/test-daily-reflection.ts",
     "test:reflection-api": "tsx scripts/test-reflection-api.ts",
     "test:reflection-alert": "tsx scripts/test-reflection-alert.ts",
@@ -32,7 +29,8 @@
     "test:work-calendar-view-filters": "tsx scripts/test-work-calendar-view-filters.ts",
     "test:work-hours": "tsx scripts/test-work-hours.ts",
     "test:oracle-work-hours-workflow": "tsx scripts/test-oracle-work-hours-workflow.ts",
-    "test:daily-snippet-prompt": "tsx scripts/test-daily-snippet-prompt.ts"
+    "test:daily-snippet-prompt": "tsx scripts/test-daily-snippet-prompt.ts",
+    "test:hamilton-retirement": "tsx scripts/test-hamilton-retirement.ts"
   },
   "dependencies": {
     "@notionhq/client": "^2.3.0",
