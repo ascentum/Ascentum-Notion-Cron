@@ -24,6 +24,15 @@ async function main() {
     PORT: "3000",
     AUTO_POST_DELAY_MINUTES: "30",
     WORK_HOURS_HISTORY_LOOKBACK_DAYS: "730",
+    NOTION_API_KEY: "fixture-notion-token",
+    NOTION_USER_HAMILTON: "retired-hamilton",
+    NOTION_WORK_CALENDAR_DB_ID: "calendar-db",
+    NOTION_WORK_DB_ID: "work-db",
+    NOTION_WORK_CALENDAR_DATA_SOURCE_ID: "calendar-source",
+    NOTION_WORK_DATA_SOURCE_ID: "work-source",
+    NOTION_WORK_CALENDAR_PERSON_ID: "fixture-user",
+    NOTION_LINKED_VIEW_DATE_PROPERTY_ID: "completion-date",
+
   };
   const originalEnv = Object.fromEntries(Object.keys(fixture).map((key) => [key, process.env[key]]));
   const originalSetInterval = global.setInterval;
@@ -51,25 +60,11 @@ async function main() {
     global.fetch = async () => { throw new Error("Unexpected network request in scheduler test"); };
     const config = { ...require("../src/config").config };
     stub("../src/config", { config });
-    const { getHamiltonCalendarSchedule } = require("../src/services/hamilton-calendar-service") as
-      typeof import("../src/services/hamilton-calendar-service");
-    let outcome: "created" | "repaired" | "locked" | "fail" = "created";
-    const calls: Date[] = [];
     let sweeps = 0;
-    let sweepFails = true;
     const otherCalls: Date[] = [];
-    stub("../src/services/hamilton-calendar-service", {
-      getHamiltonCalendarSchedule,
-      async runHamiltonCalendar(now: Date) {
-        calls.push(now);
-        if (outcome === "fail") throw new Error("fixture calendar failure");
-        return { status: outcome, targetDate: getHamiltonCalendarSchedule(now).targetDate };
-      },
-    });
     stub("../src/services/dispatch-service", {
       async sweepDueDispatches() {
         sweeps++;
-        if (sweepFails) throw new Error("fixture dispatch failure");
       },
     });
     for (const [specifier, exportName] of [
@@ -109,105 +104,40 @@ async function main() {
       await settle();
     };
     const stop = () => { active!.stop(); active = undefined; };
-    const reset = () => {
-      if (active) stop();
-      db!.getDatabase().exec("DELETE FROM scheduler_state; DELETE FROM job_runs;");
-      calls.length = 0;
-      errors.length = 0;
-      outcome = "created";
-      config.enableHamiltonCalendarAutoCreate = true;
-      config.hamiltonNotionRepeatDisabled = true;
+    start();
+    await settle();
+    await tick();
+    assert.equal(marker(), null);
+    assert.equal(jobs().length, 0, "legacy activation flags must not schedule Hamilton");
+    assert.equal(sweeps, 2, "existing dispatch sweep must continue");
+    now = new Date("2026-10-07T04:00:00Z");
+    await tick();
+    assert.equal(otherCalls.length, 1, "daily snippets must continue after retirement");
+    now = new Date("2026-10-08T04:00:00Z");
+    await tick();
+    assert.equal(otherCalls.length, 3, "Thursday must run daily snippets and weekly report");
+    now = new Date("2026-10-12T04:00:00Z");
+    await tick();
+    assert.equal(otherCalls.length, 5, "Monday must run daily snippets and work-hours report");
+    assert.equal(jobs().length, 0);
+    assert.equal(marker(), null);
+    assert.equal(errors.some(entry => String(entry[0]).includes("[scheduler]")), false);
+    stop();
+    assert.ok(clearCount > 0);
+    // Exercise the actual scheduled filter-fix entry point with legacy env present.
+    let queries = 0;
+    global.fetch = async (url, init) => {
+      assert.equal(String(url), "https://api.notion.com/v1/data_sources/calendar-source/query");
+      const body = JSON.parse(String(init?.body));
+      assert.equal(JSON.stringify(body).includes("retired-hamilton"), false);
+      assert.ok(JSON.stringify(body).includes('"contains":"fixture-user"'));
+      queries++;
+      return new Response(JSON.stringify({results: [], has_more: false}), {status: 200});
     };
-
-    start();
-    assert.equal(marker(), null, "bootstrap must not mark Hamilton complete on first activation after 13:00");
-    await settle();
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].toISOString(), now.toISOString());
-    assert.equal(marker(), "2026-10-06");
-    assert.equal(jobs()[0].status, "success");
-    assert.equal(jobs()[0].scheduledFor, "2026-10-07");
-    assert.equal(sweeps, 1);
-    assert.ok(errors.some((entry) => String(entry[0]).includes("tick failed")));
-    await tick();
-    assert.equal(calls.length, 1, "successful day must not run twice");
-    stop();
-    db.closeDatabase(); // Reopen the real SQLite file to exercise persisted restart state.
-    start();
-    await settle();
-    assert.equal(calls.length, 1, "restart must respect the persisted success marker");
-    assert.equal(jobs().length, 1);
-
-    reset();
-    outcome = "fail";
-    start();
-    await settle();
-    assert.equal(marker(), null);
-    assert.equal(jobs()[0].status, "failed");
-    assert.match(jobs()[0].error!, /fixture calendar failure/);
-    outcome = "repaired";
-    await tick();
-    assert.equal(calls.length, 2, "failure must retry on next tick");
-    assert.equal(marker(), "2026-10-06");
-    assert.deepEqual(jobs().map((job) => job.status), ["success", "failed"]);
-
-    reset();
-    outcome = "locked";
-    start();
-    await settle();
-    assert.equal(marker(), null);
-    assert.equal(jobs()[0].status, "failed", "locked must never be recorded as successful");
-    assert.match(jobs()[0].error!, /locked/);
-    outcome = "created";
-    await tick();
-    assert.equal(calls.length, 2);
-    assert.equal(marker(), "2026-10-06");
-
-    reset();
-    now = new Date("2026-10-06T03:59:59Z");
-    start();
-    await settle();
-    assert.equal(calls.length, 0, "12:59:59 KST must not run");
-    assert.equal(marker(), null);
-    now = new Date("2026-10-06T04:00:00Z");
-    await tick();
-    assert.equal(calls.length, 1, "13:00 KST must run after a pre-13:00 start");
-
-    for (const date of ["2026-10-04", "2026-10-05"]) {
-      reset();
-      now = new Date(`${date}T04:00:00Z`);
-      start();
-      await settle();
-      await tick();
-      assert.equal(calls.length, 0, `${date} (Sunday/Monday) must not run`);
-      assert.equal(marker(), null);
-      assert.equal(jobs().length, 0);
-    }
-
-    for (const gate of ["enableHamiltonCalendarAutoCreate", "hamiltonNotionRepeatDisabled"] as const) {
-      reset();
-      now = new Date("2026-10-06T04:00:00Z");
-      config[gate] = false;
-      start();
-      await settle();
-      assert.equal(calls.length, 0, `${gate}=false must gate calendar execution`);
-      assert.equal(marker(), null);
-      assert.equal(jobs().length, 0);
-    }
-
-    // The injected clock must also drive the existing jobs after midnight.
-    reset();
-    sweepFails = false;
-    now = new Date("2026-10-06T03:00:00Z");
-    start();
-    await settle();
-    now = new Date("2026-10-07T03:00:00Z");
-    await tick();
-    assert.equal(otherCalls.length, 1);
-    assert.equal(otherCalls[0].toISOString(), now.toISOString());
-    stop();
-    assert.ok(clearCount > 0, "stop must clear the captured timer");
-    console.log("Hamilton scheduler tests passed");
+    const {runWorkCalendarFilterFix} = require("../lib/work-calendar") as typeof import("../lib/work-calendar");
+    await runWorkCalendarFilterFix();
+    assert.equal(queries, 1);
+    console.log("Hamilton retirement tests passed");
   } finally {
     active?.stop();
     db?.closeDatabase();

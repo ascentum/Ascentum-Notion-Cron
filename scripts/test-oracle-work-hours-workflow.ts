@@ -19,7 +19,7 @@ for (const [mode, date, valid] of [
 ] as const) {
   const result = spawnSync("bash", ["-c", validation], { env: {
     PATH: process.env.PATH, CONFIRM: mode, TARGET_REF: "main", DIAGNOSTIC_DATE: "",
-    WORK_HOURS_RECOVERY_DATE: date, HAMILTON_ENABLE: "false", HAMILTON_REPEAT_DISABLED: "false",
+    WORK_HOURS_RECOVERY_DATE: date,
   }});
   assert.equal(result.status === 0, valid, `${mode} / ${date}: ${result.stdout}`);
 }

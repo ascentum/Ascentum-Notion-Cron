@@ -43,8 +43,6 @@ export const config = {
     "ENABLE_MEETING_PAGE_AUTO_CREATE",
     false
   ),
-  enableHamiltonCalendarAutoCreate: optionalBoolean("ENABLE_HAMILTON_CALENDAR_AUTO_CREATE", false),
-  hamiltonNotionRepeatDisabled: optionalBoolean("HAMILTON_NOTION_REPEAT_DISABLED", false),
   enableDailyReflectionSync: optionalBoolean("ENABLE_DAILY_REFLECTION_SYNC", true),
   reflectionDatabaseId: process.env.NOTION_REFLECTION_DB_ID ?? "3fabd55c-4778-803a-be0a-d82bea2341a6",
   reflectionDataSourceId: process.env.NOTION_REFLECTION_DATA_SOURCE_ID ?? "",

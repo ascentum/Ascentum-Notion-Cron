@@ -37,7 +37,8 @@ async function main() {
       service: "notion-cron",
       schedulerEnabled: config.enableScheduler,
       schedulerTickSeconds: config.schedulerTickSeconds,
-      hamiltonCalendarEnabled: config.enableHamiltonCalendarAutoCreate && config.hamiltonNotionRepeatDisabled,
+      // Retained for health-check compatibility after retirement on 2026-10-31.
+      hamiltonCalendarEnabled: false,
       dailyReflectionEnabled: config.enableDailyReflectionSync,
       dailyReflectionSchedule: "09:00 Asia/Seoul (previous day)",
       dailyReflectionDataSourceConfigured: Boolean(config.reflectionDataSourceId),
