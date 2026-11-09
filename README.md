@@ -336,3 +336,7 @@ lib/
   google-calendar.ts           # OAuth 토큰 갱신 + 캘린더 조회
   work-hours.ts                # 근무 시간 집계/포맷 (순수 함수)
 ```
+
+### 영민 업무 캘린더 다음 날 생성
+
+OCI 스케줄러는 활성화 시 매일 KST 21시 이후 첫 tick에 다음 날 페이지를 생성한다. 기존 템플릿과 담당자를 검증하고 날짜별 별도 잠금 및 생성 요청 기록으로 중복을 방지한다. 생성 결과가 불확실할 때는 재요청하지 않는다. 템플릿 적용을 기다린 후 상단 오늘의 업무 보기의 완료일만 페이지 날짜로 고정하고 검증한다. `ENABLE_YOUNGMIN_CALENDAR_AUTO_CREATE`와 `YOUNGMIN_NOTION_REPEAT_DISABLED`가 모두 true일 때만 실행한다. 노션 반복 해제를 확인한 뒤 Oracle Deploy의 `enable_youngmin_calendar`를 선택한다. 배포 전 읽기 전용 사전 검사를 수행하며 `/healthz`의 `youngminCalendarEnabled`와 `scheduled-youngmin-calendar` 작업 기록으로 운영 상태를 확인한다. 예약 시각에 서버가 꺼져 있었다면 같은 날 21시 이후 재시작 시 실행하고 이전 날짜는 일괄 생성하지 않는다.

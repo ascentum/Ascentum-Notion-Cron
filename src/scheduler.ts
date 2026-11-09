@@ -1,3 +1,4 @@
+import { getYoungminCalendarSchedule, runYoungminCalendar } from "./services/youngmin-calendar-service";
 import { getKstDateInfo } from "../lib/time";
 import { config } from "./config";
 import {
@@ -13,6 +14,7 @@ import { runWorkHoursReport } from "./services/work-hours-service";
 import { getDailyReflectionSchedule, runDailyReflection } from "./services/daily-reflection-service";
 import { notifyReflectionFailure } from "./services/reflection-alert-service";
 
+const YOUNGMIN_CALENDAR_STATE_KEY = "last_youngmin_calendar_trigger_date";
 const DAILY_STATE_KEY = "last_daily_send_trigger_date";
 const WEEKLY_STATE_KEY = "last_weekly_report_trigger_date";
 const WORK_HOURS_STATE_KEY = "last_work_hours_report_trigger_date";
@@ -85,6 +87,19 @@ export function startScheduler(nowProvider: () => Date = () => new Date()) {
           try { await notifyReflectionFailure(reflectionSchedule.targetDate, reflectionNow); }
           catch (alertError) { console.error("[scheduler] reflection alert failed:", alertError); }
         }
+      }
+      const calendarNow = nowProvider();
+      const calendar = getYoungminCalendarSchedule(calendarNow);
+      if (config.enableYoungminCalendar && config.youngminRepeatDisabled && calendar.due &&
+          getSchedulerState(YOUNGMIN_CALENDAR_STATE_KEY) !== calendar.triggerDate) {
+        try {
+          await runTrackedJob("scheduled-youngmin-calendar", calendar.targetDate, async () => {
+            const result = await runYoungminCalendar(calendarNow);
+            if (result.status !== "created" && result.status !== "repaired") throw new Error(`Calendar did not complete: ${result.status}`);
+            setSchedulerState(YOUNGMIN_CALENDAR_STATE_KEY, calendar.triggerDate, new Date().toISOString());
+            return result;
+          });
+        } catch (error) { console.error("[scheduler] youngmin calendar failed:", error); }
       }
       await sweepDueDispatches();
 

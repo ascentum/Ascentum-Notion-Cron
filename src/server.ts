@@ -36,6 +36,7 @@ async function main() {
       ok: true,
       service: "notion-cron",
       schedulerEnabled: config.enableScheduler,
+      youngminCalendarEnabled: config.enableYoungminCalendar && config.youngminRepeatDisabled,
       schedulerTickSeconds: config.schedulerTickSeconds,
       // Retained for health-check compatibility after retirement on 2026-10-31.
       hamiltonCalendarEnabled: false,

@@ -23,6 +23,10 @@ on:
         description: Branch to deploy
         required: true
         default: main
+      enable_youngmin_calendar:
+        description: Enable after confirming the Notion repeat is disabled
+        type: boolean
+        default: false
       diagnostic_date:
         description: Optional YYYY-MM-DD for read-only Notion task verification
         required: false
@@ -336,12 +340,13 @@ jobs:
         shell: bash
         env:
           TARGET_REF: ${{ inputs.target_ref }}
+          YOUNGMIN_ENABLE: ${{ inputs.enable_youngmin_calendar }}
         run: |
           set -euo pipefail
           ssh -i "${HOME}/.ssh/notion_cron_deploy_key" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -p "${API_SSH_PORT}" "${API_USER}@${API_HOST}" \
-            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' REFLECTION_SOURCE_ID='${REFLECTION_SOURCE_ID}' bash -se" <<'REMOTE'
+            "APP='${APP_DIR}' REF='${TARGET_REF}' HEALTH_URL='${HEALTH_URL}' REFLECTION_SOURCE_ID='${REFLECTION_SOURCE_ID}' YOUNGMIN_ENABLE='${YOUNGMIN_ENABLE}' bash -se" <<'REMOTE'
           set -euo pipefail
 
           ENV_REL=ops/oracle/notion-cron.env
@@ -394,6 +399,17 @@ jobs:
           PY_REFLECTION
           fi
 
+          if [ "${YOUNGMIN_ENABLE}" = "true" ]; then
+            python3 - "${STAGE}/${ENV_REL}" <<'PY_YOUNGMIN'
+          import pathlib, sys
+          env_path = pathlib.Path(sys.argv[1])
+          keys = {"ENABLE_YOUNGMIN_CALENDAR_AUTO_CREATE", "YOUNGMIN_NOTION_REPEAT_DISABLED"}
+          lines = [line for line in env_path.read_text().splitlines() if line.partition("=")[0].strip() not in keys]
+          lines.extend(["ENABLE_YOUNGMIN_CALENDAR_AUTO_CREATE=true", "YOUNGMIN_NOTION_REPEAT_DISABLED=true"])
+          env_path.write_text("\n".join(lines) + "\n")
+          PY_YOUNGMIN
+          fi
+
           # Retired 2026-10-31: discard legacy Hamilton activation settings.
           python3 - "${STAGE}/${ENV_REL}" <<'PY_ENV'
           import pathlib, sys
@@ -439,6 +455,12 @@ jobs:
                   filter:{property:"날짜",date:{equals:"2026-10-14"}}});
                 console.log("REFLECTION_PREFLIGHT=passed");
               }).catch(error => {console.error(error.message);process.exitCode=1;});
+            ' </dev/null; then rollback; exit 1; fi
+          fi
+
+          if [ "${YOUNGMIN_ENABLE}" = "true" ]; then
+            if ! compose run --rm --no-deps -T -e ENABLE_SCHEDULER=false notion-cron node -e '
+              require("./dist/src/services/youngmin-calendar-service").runYoungminCalendar(new Date(), {dryRun:true, targetDate:require("./dist/lib/time").shiftIsoDate(require("./dist/lib/time").getKstDateInfo(new Date()).isoDate,1)}).then(r=>console.log("YOUNGMIN_PREFLIGHT="+JSON.stringify(r))).catch(e=>{console.error(e);process.exitCode=1});
             ' </dev/null; then rollback; exit 1; fi
           fi
 
