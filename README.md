@@ -8,7 +8,7 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Oracle C
 
 - Oracle Cloud: Express 서버, Discord interaction endpoint, 내부 scheduler, SQLite 상태 저장을 담당한다.
 - Caddy: Oracle VM에서 HTTPS 인증서 발급/갱신과 reverse proxy를 담당한다.
-- GitHub Actions: Notion 반복 템플릿으로 생성된 업무 캘린더 페이지의 링크드 DB 뷰 필터를 보정한다.
+- Oracle scheduler: 영민 업무 페이지를 전날 생성하고 연결 보기 날짜 필터를 보정한다.
 - Notion: 업무 DB, 업무 캘린더 DB, 미팅 기록 DB를 데이터 소스로 사용한다.
 - Discord: 스니펫 확인/수정/건너뛰기 상호작용을 받는다.
 - GCS Pulse: 게시된 데일리/주간 스니펫 피드백 채점을 받는다.
@@ -64,12 +64,12 @@ Notion + Discord + GCS Pulse 자동화 서버. 현재 운영 기준은 `Oracle C
 
 ### 4. 업무 캘린더 링크드 뷰 필터 보정
 
-- GitHub Actions가 KST 평일 03:00에 `사람`이 박영민인 `어센텀 업무 ...` 캘린더 페이지를 스캔한다.
+- OCI 워커가 다음 날 영민 페이지를 생성할 때 연결 보기 필터를 보정한다.
 - 각 페이지의 첫 번째 콜아웃 안에 있는 `오늘의 업무` 테이블만 선택해 `완료일 = today` 필터를 해당 페이지의 `일정` 날짜로 바꾼다. 날짜 조건이 없으면 완료일 quick filter를 추가하고 담당자·카테고리 필터는 유지한다.
 - 보정은 상단 테이블을 대상으로 한다. 아래 `Archy 업무` 등 다른 링크드뷰는 수정하지 않는다. 상단 대상 테이블이 없거나 여러 개면 임의 선택하지 않고 실패한다.
 - 이미 날짜가 고정된 `완료일` 필터는 기본적으로 다시 바꾸지 않는다.
 - 기본 스캔 범위는 KST 오늘 기준 2일 전부터 오늘까지다.
-- 수동 실행은 GitHub Actions의 `Fix Notion linked view filters` workflow에서 `target_date`를 지정해 실행한다.
+- 기존 페이지 수동 보정은 아래 CLI의 `TARGET_DATE`를 지정해 실행한다.
 
 ### Hamilton 자동화 종료 (2026-10-31)
 
@@ -169,19 +169,6 @@ DRY_RUN=true TARGET_DATE=2026-05-16 npm run notion:fix-work-calendar-views
 npm run notion:fix-work-calendar-views
 ```
 
-GitHub Actions repository secrets:
-
-- `NOTION_API_KEY`
-- `NOTION_WORK_DB_ID`
-- `NOTION_WORK_CALENDAR_DB_ID`
-
-GitHub Actions repository variables는 선택값이다. 기본값과 다르게 운영할 때만 설정한다.
-
-- `NOTION_WORK_CALENDAR_TITLE_PREFIX`
-- `NOTION_WORK_CALENDAR_DATE_PROPERTY_NAME`
-- `NOTION_LINKED_VIEW_DATE_PROPERTY_NAME`
-- `NOTION_WORK_CALENDAR_LOOKBACK_DAYS`
-
 ## 구글 캘린더 연동 (최초 1회)
 
 1. GCP 프로젝트에서 **Google Calendar API**를 사용 설정한다. (프로젝트는 `ym5373@gachon.ac.kr` 계정 소유, OAuth 동의 화면 게시 상태는 `내부`)
@@ -247,7 +234,7 @@ npm run test:work-hours
 - Oracle 컨테이너 확인: `ssh ubuntu@168.110.123.188 'cd /opt/notion-cron/app && docker compose --env-file ops/oracle/notion-cron.env -f ops/oracle/docker-compose.yml ps'`
 - Discord interaction 장애: Discord application의 Interactions Endpoint URL이 `https://notion-cron.168.110.123.188.sslip.io/discord-interact`인지 확인한다.
 - 데일리/주간 스니펫 누락: `/healthz`의 `recentJobs`와 Oracle Docker logs를 확인하고, 필요하면 `/internal/snippets/send-daily` 또는 `/internal/reports/run-weekly`를 내부 토큰으로 수동 호출한다.
-- 업무 캘린더 링크드 뷰 필터 누락: GitHub Actions `Fix Notion linked view filters`를 `target_date=YYYY-MM-DD`로 수동 실행한다.
+- 업무 캘린더 링크드 뷰 필터 누락: `TARGET_DATE=YYYY-MM-DD npm run notion:fix-work-calendar-views`를 설정된 환경에서 수동 실행한다.
 - Notion API 실패: 통합 토큰이 대상 DB와 생성된 페이지에 접근 권한이 있는지, `NOTION_WORK_DB_ID`/`NOTION_WORK_CALENDAR_DB_ID`가 맞는지 확인한다.
 
 ## 배포
@@ -336,3 +323,7 @@ lib/
   google-calendar.ts           # OAuth 토큰 갱신 + 캘린더 조회
   work-hours.ts                # 근무 시간 집계/포맷 (순수 함수)
 ```
+
+### 영민 업무 캘린더 다음 날 생성
+
+OCI 스케줄러는 활성화 시 매일 KST 21시 이후 첫 tick에 다음 날 페이지를 생성한다. 기존 템플릿과 담당자를 검증하고 날짜별 별도 잠금 및 생성 요청 기록으로 중복을 방지한다. 생성 결과가 불확실할 때는 재요청하지 않는다. 템플릿 적용을 기다린 후 상단 오늘의 업무 보기의 완료일만 페이지 날짜로 고정하고 검증한다. `ENABLE_YOUNGMIN_CALENDAR_AUTO_CREATE`와 `YOUNGMIN_NOTION_REPEAT_DISABLED`가 모두 true일 때만 실행한다. 노션 반복 해제를 확인한 뒤 Oracle Deploy의 `enable_youngmin_calendar`를 선택한다. 배포 전 읽기 전용 사전 검사를 수행하며 `/healthz`의 `youngminCalendarEnabled`와 `scheduled-youngmin-calendar` 작업 기록으로 운영 상태를 확인한다. 예약 시각에 서버가 꺼져 있었다면 같은 날 21시 이후 재시작 시 실행하고 이전 날짜는 일괄 생성하지 않는다.
