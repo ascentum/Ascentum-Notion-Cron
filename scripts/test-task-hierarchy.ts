@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import {
   formatTaskTreeByUser,
+  getPageDate,
+  getTaskParentId,
   getTaskTitle,
+  getWorkPages,
   buildFormattedTasks,
   notion,
   mapWithConcurrencyLimit,
@@ -12,6 +15,52 @@ const USER_IDS = {
   youngmin: "youngmin-user",
   partner: "partner-user",
 };
+
+async function verifySnippetCompletionDateScope() {
+  const date = "2026-11-18";
+  const makePage = (id: string, completedOn: string, parentId?: string) => ({
+    id,
+    properties: {
+      이름: { type: "title", title: [{ plain_text: id }] },
+      완료: { type: "checkbox", checkbox: true },
+      완료일: { type: "date", date: { start: completedOn } },
+      PIC: { type: "people", people: [{ id: USER_IDS.youngmin }] },
+      "상위 항목": {
+        type: "relation",
+        relation: parentId ? [{ id: parentId }] : [],
+      },
+    },
+  });
+  const pages = [
+    makePage("상위 업무", date),
+    makePage("11/17 하위 업무 1", "2026-11-17", "상위 업무"),
+    makePage("11/17 하위 업무 2", "2026-11-17", "상위 업무"),
+    makePage("11/17 하위 업무 3", "2026-11-17", "상위 업무"),
+    makePage("11/18 하위 업무 1", date, "상위 업무"),
+    makePage("11/18 하위 업무 2", date, "상위 업무"),
+  ];
+
+  const originalQuery = notion.databases.query;
+  (notion.databases as any).query = async ({ filter }: any) => {
+    const results = filter.property === "상위 항목"
+      ? pages.filter((page) => getTaskParentId(page) === filter.relation.contains)
+      : pages.filter((page) => getPageDate(page) === date);
+    return { results, has_more: false };
+  };
+
+  try {
+    const workPages = await getWorkPages(date, date);
+    assert.equal(workPages.length, 3);
+    const formatted = await buildFormattedTasks(workPages, USER_IDS);
+    assert.deepEqual(formatted.youngmin, [
+      "상위 업무",
+      "  - 11/18 하위 업무 1",
+      "  - 11/18 하위 업무 2",
+    ]);
+  } finally {
+    notion.databases.query = originalQuery;
+  }
+}
 
 async function verifyHierarchyFormatting() {
   const tasks: TaskInfo[] = [
@@ -124,6 +173,16 @@ async function verifyCompletedExpansionRules() {
       parentId: "hidden-bridge",
       users: [USER_IDS.partner],
       isCompleted: true,
+      isInScope: true,
+      sourceIndex: 3,
+    },
+    {
+      id: "out-of-scope-descendant",
+      title: "Out of Scope Descendant",
+      category: "QA",
+      parentId: "root-seed",
+      users: [USER_IDS.youngmin],
+      isCompleted: true,
       isInScope: false,
       sourceIndex: Number.POSITIVE_INFINITY,
     },
@@ -168,6 +227,8 @@ async function verifyCompletedExpansionRules() {
     "  - [Execution] Youngmin Seed",
   ]);
   assert.deepEqual(formatted.partner, [
+    "[Planning] Root Seed",
+    "  - [QA] Connected Descendant",
     "[Docs] Shared Parent",
     "  - [Ops] Partner Sibling Seed",
   ]);
@@ -273,6 +334,7 @@ async function verifyRenamedTaskTitles() {
 }
 
 async function main() {
+  await verifySnippetCompletionDateScope();
   await verifyRenamedTaskTitles();
   await verifyHierarchyFormatting();
   await verifyCompletedExpansionRules();

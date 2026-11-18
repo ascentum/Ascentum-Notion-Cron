@@ -29,6 +29,21 @@ export function appendHealthCheck(
   return `${content.trimEnd()}\n\n헬스 체크 (10점)\n${normalized}`;
 }
 
+export function normalizeDailyTaskListIndentation(content: string): string {
+  const headings = [...content.matchAll(
+    /^[ \t]*(?:#{1,6}[ \t]+)?(?:\*\*)?(오늘 한 일|수행 목적|오늘의 배움 또는 남길 말|헬스 체크 \(10점\))(?:\*\*)?[ \t]*\r?$/gm
+  )];
+  const taskHeadingIndex = headings.findIndex((heading) => heading[1] === "오늘 한 일");
+  if (taskHeadingIndex === -1) return content;
+
+  const taskHeading = headings[taskHeadingIndex];
+  const start = taskHeading.index + taskHeading[0].length;
+  const end = headings[taskHeadingIndex + 1]?.index ?? content.length;
+  // Discord requires two spaces before a nested bullet.
+  const taskList = content.slice(start, end).replace(/^ (?=[*-] )/gm, "  ");
+  return content.slice(0, start) + taskList + content.slice(end);
+}
+
 export function personNameKo(person: Person) {
   return PERSON_NAMES_KO[person];
 }

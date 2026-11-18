@@ -437,7 +437,6 @@ export interface TaskInfo {
 const TASK_FETCH_CONCURRENCY = 3;
 const FALLBACK_PARENT_TITLE = "(상위 업무)";
 const ancestorTaskCache = new Map<string, Promise<TaskInfo>>();
-const childTaskCache = new Map<string, Promise<TaskInfo[]>>();
 
 function toTaskInfo(
   page: any,
@@ -486,49 +485,6 @@ async function fetchAncestorTask(pageId: string): Promise<TaskInfo> {
     });
 
   ancestorTaskCache.set(pageId, promise);
-  return promise;
-}
-
-async function fetchChildTasks(parentId: string): Promise<TaskInfo[]> {
-  const cached = childTaskCache.get(parentId);
-  if (cached) return cached;
-
-  const promise = (async () => {
-    const children: TaskInfo[] = [];
-    let cursor: string | undefined;
-
-    do {
-      const response = await notion.databases.query({
-        database_id: process.env.NOTION_WORK_DB_ID!,
-        filter: {
-          property: "상위 항목",
-          relation: { contains: parentId },
-        },
-        start_cursor: cursor,
-        page_size: 100,
-      });
-
-      children.push(
-        ...response.results.map((page) =>
-          toTaskInfo(page as any, {
-            isInScope: false,
-            sourceIndex: Number.POSITIVE_INFINITY,
-          })
-        )
-      );
-
-      cursor = response.has_more
-        ? (response.next_cursor ?? undefined)
-        : undefined;
-    } while (cursor);
-
-    return children;
-  })().catch((error) => {
-    childTaskCache.delete(parentId);
-    throw error;
-  });
-
-  childTaskCache.set(parentId, promise);
   return promise;
 }
 
@@ -591,44 +547,6 @@ async function loadAncestorTasks(initialTasks: TaskInfo[]): Promise<TaskInfo[]> 
   return ancestors;
 }
 
-async function loadDescendantTasks(initialTasks: TaskInfo[]): Promise<TaskInfo[]> {
-  const taskById = new Map(initialTasks.map((task) => [task.id, task]));
-  const descendants: TaskInfo[] = [];
-  const pendingParentIds = [...new Set(initialTasks.map((task) => task.id))];
-  const expandedParentIds = new Set<string>();
-
-  while (pendingParentIds.length > 0) {
-    const batchIds = pendingParentIds.filter(
-      (parentId) => !expandedParentIds.has(parentId)
-    );
-    pendingParentIds.length = 0;
-
-    if (batchIds.length === 0) break;
-    batchIds.forEach((parentId) => expandedParentIds.add(parentId));
-
-    const fetchedChildren = await mapWithConcurrencyLimit(
-      batchIds,
-      TASK_FETCH_CONCURRENCY,
-      (parentId) => fetchChildTasks(parentId)
-    );
-
-    for (const children of fetchedChildren) {
-      for (const child of children) {
-        if (!taskById.has(child.id)) {
-          taskById.set(child.id, child);
-          descendants.push(child);
-        }
-
-        if (!expandedParentIds.has(child.id)) {
-          pendingParentIds.push(child.id);
-        }
-      }
-    }
-  }
-
-  return descendants;
-}
-
 function mergeTaskInfo(existing: TaskInfo, incoming: TaskInfo): TaskInfo {
   const preferIncoming =
     existing.title === FALLBACK_PARENT_TITLE &&
@@ -669,30 +587,25 @@ function collectVisibleTaskIds(
   childrenByParent: Map<string, TaskInfo[]>
 ): Set<string> {
   const visibleTaskIds = new Set<string>();
+  const visitedBranchIds = new Set<string>();
+  const branchStack = [...seedTaskIds];
 
-  for (const seedTaskId of seedTaskIds) {
-    const lineage = new Set<string>();
-    let currentId: string | null = seedTaskId;
+  while (branchStack.length > 0) {
+    const taskId = branchStack.pop();
+    if (!taskId || visitedBranchIds.has(taskId)) continue;
+    visitedBranchIds.add(taskId);
 
-    while (currentId && !lineage.has(currentId)) {
-      visibleTaskIds.add(currentId);
-      lineage.add(currentId);
-      currentId = taskById.get(currentId)?.parentId ?? null;
+    const task = taskById.get(taskId);
+    if (task?.isInScope && task.isCompleted) {
+      let currentId: string | null = taskId;
+      while (currentId && !visibleTaskIds.has(currentId)) {
+        visibleTaskIds.add(currentId);
+        currentId = taskById.get(currentId)?.parentId ?? null;
+      }
     }
 
-    const branchStack = [seedTaskId];
-    const visitedBranchIds = new Set<string>();
-
-    while (branchStack.length > 0) {
-      const taskId = branchStack.pop();
-      if (!taskId || visitedBranchIds.has(taskId)) continue;
-
-      visitedBranchIds.add(taskId);
-      visibleTaskIds.add(taskId);
-
-      for (const child of childrenByParent.get(taskId) ?? []) {
-        branchStack.push(child.id);
-      }
+    for (const child of childrenByParent.get(taskId) ?? []) {
+      branchStack.push(child.id);
     }
   }
 
@@ -846,13 +759,11 @@ export async function buildFormattedTasks(
   const scopedTasks = pages.map((page, index) =>
     toTaskInfo(page, { isInScope: true, sourceIndex: index })
   );
-  const [ancestorTasks, descendantTasks] = await Promise.all([
-    loadAncestorTasks(scopedTasks),
-    loadDescendantTasks(scopedTasks),
-  ]);
+  // The date-filtered pages already contain the eligible descendants.
+  const ancestorTasks = await loadAncestorTasks(scopedTasks);
   const taskById = new Map<string, TaskInfo>();
 
-  for (const task of [...scopedTasks, ...ancestorTasks, ...descendantTasks]) {
+  for (const task of [...scopedTasks, ...ancestorTasks]) {
     const existing = taskById.get(task.id);
     taskById.set(task.id, existing ? mergeTaskInfo(existing, task) : task);
   }
