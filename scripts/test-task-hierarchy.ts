@@ -18,11 +18,11 @@ const USER_IDS = {
 
 async function verifySnippetCompletionDateScope() {
   const date = "2026-11-18";
-  const makePage = (id: string, completedOn: string, parentId?: string) => ({
+  const makePage = (id: string, completedOn: string, parentId?: string, completed = true) => ({
     id,
     properties: {
       이름: { type: "title", title: [{ plain_text: id }] },
-      완료: { type: "checkbox", checkbox: true },
+      완료: { type: "checkbox", checkbox: completed },
       완료일: { type: "date", date: { start: completedOn } },
       PIC: { type: "people", people: [{ id: USER_IDS.youngmin }] },
       "상위 항목": {
@@ -38,27 +38,41 @@ async function verifySnippetCompletionDateScope() {
     makePage("11/17 하위 업무 3", "2026-11-17", "상위 업무"),
     makePage("11/18 하위 업무 1", date, "상위 업무"),
     makePage("11/18 하위 업무 2", date, "상위 업무"),
+    makePage("11/19 상위 업무", "2026-11-19", undefined, false),
+    makePage("미완료 중간 상위 업무", "2026-11-19", "11/19 상위 업무", false),
+    makePage("11/18 완료 업무", date, "미완료 중간 상위 업무"),
+    makePage("11/19 완료 업무", "2026-11-19", "미완료 중간 상위 업무"),
   ];
 
   const originalQuery = notion.databases.query;
+  const originalRetrieve = notion.pages.retrieve;
   (notion.databases as any).query = async ({ filter }: any) => {
     const results = filter.property === "상위 항목"
       ? pages.filter((page) => getTaskParentId(page) === filter.relation.contains)
-      : pages.filter((page) => getPageDate(page) === date);
+      : pages.filter((page) => getPageDate(page) === date && page.properties.완료.checkbox);
     return { results, has_more: false };
+  };
+  (notion.pages as any).retrieve = async ({ page_id }: { page_id: string }) => {
+    const page = pages.find((item) => item.id === page_id);
+    assert.ok(page, `unknown fixture page ${page_id}`);
+    return page;
   };
 
   try {
     const workPages = await getWorkPages(date, date);
-    assert.equal(workPages.length, 3);
+    assert.equal(workPages.length, 4);
     const formatted = await buildFormattedTasks(workPages, USER_IDS);
     assert.deepEqual(formatted.youngmin, [
       "상위 업무",
       "  - 11/18 하위 업무 1",
       "  - 11/18 하위 업무 2",
+      "11/19 상위 업무",
+      "  - 미완료 중간 상위 업무",
+      "    - 11/18 완료 업무",
     ]);
   } finally {
     notion.databases.query = originalQuery;
+    notion.pages.retrieve = originalRetrieve;
   }
 }
 
@@ -157,8 +171,8 @@ async function verifyCompletedExpansionRules() {
       sourceIndex: 0,
     },
     {
-      id: "hidden-bridge",
-      title: "Hidden Bridge",
+      id: "incomplete-parent",
+      title: "Incomplete Parent",
       category: "Internal",
       parentId: "root-seed",
       users: [],
@@ -170,7 +184,7 @@ async function verifyCompletedExpansionRules() {
       id: "connected-descendant",
       title: "Connected Descendant",
       category: "QA",
-      parentId: "hidden-bridge",
+      parentId: "incomplete-parent",
       users: [USER_IDS.partner],
       isCompleted: true,
       isInScope: true,
@@ -222,20 +236,18 @@ async function verifyCompletedExpansionRules() {
 
   assert.deepEqual(formatted.youngmin, [
     "[Planning] Root Seed",
-    "  - [QA] Connected Descendant",
+    "  - [Internal] Incomplete Parent",
+    "    - [QA] Connected Descendant",
     "[Docs] Shared Parent",
     "  - [Execution] Youngmin Seed",
   ]);
   assert.deepEqual(formatted.partner, [
     "[Planning] Root Seed",
-    "  - [QA] Connected Descendant",
+    "  - [Internal] Incomplete Parent",
+    "    - [QA] Connected Descendant",
     "[Docs] Shared Parent",
     "  - [Ops] Partner Sibling Seed",
   ]);
-  assert.equal(
-    formatted.youngmin.some((line) => line.includes("Hidden Bridge")),
-    false
-  );
   assert.equal(
     formatted.youngmin.some((line) => line.includes("Partner Sibling Seed")),
     false
