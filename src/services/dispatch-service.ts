@@ -16,6 +16,7 @@ import {
   buildCompletedSnippetEmbed,
   buildPendingSnippetComponents,
   buildPendingSnippetEmbed,
+  normalizeDailyTaskListIndentation,
   normalizeHealthScore,
 } from "../snippets";
 import {
@@ -170,7 +171,10 @@ export async function finalizeDispatch(
     };
   }
 
-  const baseContent = options.baseContent ?? claimed.content;
+  const submittedContent = options.baseContent ?? claimed.content;
+  const baseContent = claimed.snippetType === "daily" && !options.skip
+    ? normalizeDailyTaskListIndentation(submittedContent)
+    : submittedContent;
 
   if (options.skip) {
     const footerText = "⏭️ 건너뛰기 — 게시하지 않음";
