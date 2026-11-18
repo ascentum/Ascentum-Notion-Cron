@@ -612,23 +612,6 @@ function collectVisibleTaskIds(
   return visibleTaskIds;
 }
 
-function findNearestVisibleCompletedParentId(
-  task: TaskInfo,
-  taskById: Map<string, TaskInfo>,
-  renderableTaskIds: Set<string>
-): string | null {
-  const lineage = new Set<string>([task.id]);
-  let currentId = task.parentId;
-
-  while (currentId && !lineage.has(currentId)) {
-    lineage.add(currentId);
-    if (renderableTaskIds.has(currentId)) return currentId;
-    currentId = taskById.get(currentId)?.parentId ?? null;
-  }
-
-  return null;
-}
-
 function formatIndentedLine(
   title: string,
   category: string | null,
@@ -666,22 +649,17 @@ export function formatTaskTreeByUser(
       taskById,
       childrenByParent
     );
-    const renderableTasks = tasks.filter(
-      (task) => visibleTaskIds.has(task.id) && task.isCompleted
-    );
+    // Visibility already requires an eligible completed task or one of its ancestors.
+    const renderableTasks = tasks.filter((task) => visibleTaskIds.has(task.id));
     const renderableTaskIds = new Set(renderableTasks.map((task) => task.id));
-    const renderableParentById = new Map<string, string | null>();
+    const renderableChildIds = new Set<string>();
     const renderableChildrenByParent = new Map<string, TaskInfo[]>();
 
     for (const task of renderableTasks) {
-      const parentId = findNearestVisibleCompletedParentId(
-        task,
-        taskById,
-        renderableTaskIds
-      );
-      renderableParentById.set(task.id, parentId);
+      const parentId = task.parentId;
+      if (!parentId || parentId === task.id || !renderableTaskIds.has(parentId)) continue;
 
-      if (!parentId) continue;
+      renderableChildIds.add(task.id);
       const siblings = renderableChildrenByParent.get(parentId) ?? [];
       siblings.push(task);
       renderableChildrenByParent.set(parentId, siblings);
@@ -716,7 +694,7 @@ export function formatTaskTreeByUser(
     }
 
     const rootTasks = renderableTasks
-      .filter((task) => !renderableParentById.get(task.id))
+      .filter((task) => !renderableChildIds.has(task.id))
       .sort((a, b) => getSortKey(a.id) - getSortKey(b.id));
 
     const lines: string[] = [];
