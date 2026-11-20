@@ -13,6 +13,10 @@ for (const section of ["**오늘 한 일**", "**수행 목적**", "**오늘의 �
   assert.ok(prompt.includes(section), `expected prompt to keep ${section}`);
 }
 
+assert.ok(prompt.includes("같은 목적의 상위·하위 업무는 한 줄로 묶을 것"));
+assert.ok(prompt.includes("각 줄은 목적 자체로 시작할 것"));
+assert.ok(!prompt.includes("[각 업무의 목적/이유]"));
+
 // 제거된 섹션
 for (const section of [
   "하이라이트",
